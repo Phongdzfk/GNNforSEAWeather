@@ -44,7 +44,7 @@ print("wfsea @", REPO, BRANCH, COMMIT)'''
 
 NOTEBOOKS = {
     "00_download_pressure": {
-        "title": "00 · Tải ERA5 pressure levels 6-hourly (submit → fetch, không sợ timeout)",
+        "title": "00 (dự phòng) · Tải ERA5 pressure levels qua CDS API (submit → fetch)",
         "intro": "Chạy bằng **Save & Run All** (chạy nền tối đa 12 h), Accelerator: None, Internet: On.\n"
                  "Secrets: `url`, `key` (CDS) như notebook cũ. Mỗi notebook một nhóm năm (≈ 6 GB/năm với 7 tầng × 5 biến "
                  "→ tối đa 2–3 năm/notebook để dưới 20 GB output).\n"
@@ -58,6 +58,30 @@ NOTEBOOKS = {
             "!wfsea download-submit --config {CONFIG} --years {YEARS}",
             "# Chờ và tải tối đa 11 h; tháng bị CDS từ chối sẽ tự gửi lại (tối đa 4 lần)\n"
             "!wfsea download-fetch  --config {CONFIG} --years {YEARS} --wait-hours 11",
+            "!wfsea raw-index --config {CONFIG} paths.era5_raw_root=/kaggle/working/era5_pressure",
+        ],
+    },
+    "00_download_gcs": {
+        "title": "00 · Tải ERA5 pressure levels từ Google ARCO-ERA5 (không xếp hàng, không cần key)",
+        "intro": "**Ưu tiên dùng notebook này thay cho `00_download_pressure`.** Đọc thẳng bộ Zarr công khai của Google "
+                 "(0.25°, 37 tầng, ERA5 tới 2026-06-30, ERA5T tới gần hiện tại), không có hàng đợi CDS.\n"
+                 "Chạy bằng **Save & Run All**, Accelerator: None, **Internet: On**, không cần Secret. "
+                 "Mỗi file = 1 tháng (~0,5 GB) → ~6 GB/năm → tối đa 3 năm/notebook (giới hạn 20 GB output).\n"
+                 "Tháng nào xong là ghi file luôn; hết 11,3 h thì dừng gọn. Chưa xong: tạo version mới, gắn output "
+                 "version trước làm input **và** copy nó sang /kaggle/working (ô thứ 3) → chỉ tải các tháng còn thiếu.",
+        "cells": [
+            "YEARS   = '2015-2017'   # ← mỗi notebook một nhóm năm (≤ 3 năm)\n"
+            "CONFIG  = 'configs/levels7.yaml'\n"
+            "WORKERS = 0             # số chunk tải song song; 0 = tự đo 8/16/32 (~2 phút) rồi chọn nhanh nhất",
+            "!pip install -q 'zarr>=3' gcsfs",
+            "# Tiếp tục từ version trước (nếu có gắn làm input): copy các tháng đã xong sang working\n"
+            "import glob, os, shutil\n"
+            "for f in glob.glob('/kaggle/input/**/era5_pressure_gcs_*.nc', recursive=True):\n"
+            "    d = '/kaggle/working/era5_pressure/' + f.split('/')[-2]; os.makedirs(d, exist_ok=True)\n"
+            "    dst = os.path.join(d, os.path.basename(f))\n"
+            "    if not os.path.exists(dst): shutil.copy(f, dst)\n"
+            "print(len(glob.glob('/kaggle/working/era5_pressure/*/*.nc')), 'tháng đã có')",
+            "!wfsea download-gcs --config {CONFIG} --years {YEARS} --workers {WORKERS}",
             "!wfsea raw-index --config {CONFIG} paths.era5_raw_root=/kaggle/working/era5_pressure",
         ],
     },

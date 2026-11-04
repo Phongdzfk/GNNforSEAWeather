@@ -3,6 +3,7 @@
   wfsea raw-index                          what raw ERA5 files exist (by content): vars, levels, years (Phong)
   wfsea download-submit --years 2015-2018  submit 6-hourly pressure-level requests, save request IDs
   wfsea download-fetch --wait-hours 11     download the ready ones (re-run until done)
+  wfsea download-gcs --years 2015-2016     no-queue alternative: Google ARCO-ERA5 (public Zarr)
   wfsea stats                              train-only normalisation stats from raw data (Phong)
   wfsea materialize --split train          raw NetCDF (or Zarr) → fp16 memmap cache  (Phong)
   wfsea manifest                           data_manifest.json         (Phong)
@@ -113,6 +114,9 @@ def main(argv=None):
     ap.add_argument("--years", default=None, help="download-*: e.g. 2015-2018 or 2015,2016")
     ap.add_argument("--max-new", type=int, default=48, help="download-submit: max new requests this run")
     ap.add_argument("--wait-hours", type=float, default=0.0, help="download-fetch: keep polling this long")
+    ap.add_argument("--workers", type=int, default=0, help="download-gcs: parallel chunk reads (0 = auto)")
+    ap.add_argument("--max-hours", type=float, default=None, help="download-gcs: stop starting new months after this")
+    ap.add_argument("--bench", action="store_true", help="download-gcs: only measure speed, write nothing")
     ap.add_argument("--no-checksum", action="store_true")
     ap.add_argument("--legacy-levels", default="850,500",
                     help="pressure_level order inside the old Zarr files (only for old notebook checkpoints)")
@@ -134,7 +138,7 @@ def main(argv=None):
         print(f"saved train-only stats ({years[0]}–{years[-1]}) → {dest}")
         print(f"  Tb mean {st.tb_mean:.2f} K, std {st.tb_std:.2f} K | t2m mean {st.mean.get('t2m', float('nan')):.2f}")
 
-    elif cmd in ("download-submit", "download-fetch", "download-arco"):
+    elif cmd in ("download-submit", "download-fetch", "download-gcs"):
         from wfsea.config import ON_KAGGLE
         from wfsea.constants import schema_from_config
         from wfsea.data import download as dl
@@ -142,7 +146,7 @@ def main(argv=None):
         years = _parse_years(args.years) if args.years else (
             cfg["data"]["train_years"] + cfg["data"]["val_years"] + cfg["data"]["test_years"])
         state = out / "cds_requests.json"
-        if cmd != "download-arco":
+        if cmd != "download-gcs":
             prev = [str(p) for p in Path("/kaggle/input").rglob("cds_requests.json")] if ON_KAGGLE else []
             if prev or state.exists():
                 dl._save_state(state, dl.merge_states(prev + ([str(state)] if state.exists() else [])))
@@ -155,10 +159,10 @@ def main(argv=None):
             reqs = dl.pressure_requests(years, sc["pressure_vars"], sc["levels"]) if args.years else None
             dl.cds_fetch(state, dest, wait_hours=args.wait_hours, reqs=reqs)
         else:
-            url = cfg.get("download", {}).get("arco_url")
-            if not url:
-                raise SystemExit("set download.arco_url=<geo-chunked Zarr URL from the CDS 'Analysis ready data' tab>")
-            dl.arco_pressure_download(url, years, sc["pressure_vars"], sc["levels"], dest)
+            url = cfg.get("download", {}).get("gcs_url") or dl.GCS_ARCO_URL
+            mh = args.max_hours if args.max_hours is not None else (11.3 if ON_KAGGLE else None)
+            dl.gcs_pressure_download(years, sc["pressure_vars"], sc["levels"], dest, url=url,
+                                     workers=args.workers, max_hours=mh, bench=args.bench)
 
     elif cmd == "raw-index":
         from wfsea.data.raw_index import scan_era5, summarize

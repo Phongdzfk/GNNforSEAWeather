@@ -7,7 +7,7 @@ read from environment variables or Kaggle Secrets — never commit them.
   NASA : EARTHDATA_USER, EARTHDATA_PASS
 
 Owner: Phong. Pressure levels: two-phase CDS download (`cds_submit` → `cds_fetch`) that
-survives queue delays, or `arco_pressure_download` that bypasses the queue entirely.
+survives queue delays, or `gcs_pressure_download` (Google ARCO-ERA5, public) that has no queue.
 """
 from __future__ import annotations
 
@@ -240,33 +240,142 @@ def _unpack(tmp: Path, target: Path) -> None:
         tmp.rename(target)
 
 
-def arco_pressure_download(url: str, years, variables, levels, out_dir: str | Path, key: str | None = None) -> None:
-    """Alternative without the CDS queue: read the CDS ARCO geo-chunked Zarr of ERA5 pressure levels.
+GCS_ARCO_URL = "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
+GCS_NAMES = {"z": "geopotential", "t": "temperature", "q": "specific_humidity",
+             "u": "u_component_of_wind", "v": "v_component_of_wind", "w": "vertical_velocity"}
 
-    URL: tab "Analysis ready data" of https://cds.climate.copernicus.eu/datasets/reanalysis-era5-pressure-levels
-    (accept the dataset licence first). Geo-chunks hold ~11 years of one 8×8 tile, so we read the
-    WHOLE period of one (variable, level) at once — reading month by month would re-download each
-    chunk many times. RAM: one (variable, level) for 12 years ≈ 2.2 GB float32.
-    """
+
+def _open_gcs(url: str):
     import xarray as xr
-    key = key or _secret("CDS_KEY", "key")
-    ds = xr.open_zarr(url, consolidated=True, storage_options={"headers": {"Authorization": f"Bearer {key}"}})
-    tname = "valid_time" if "valid_time" in ds.dims else "time"
-    lname = "pressure_level" if "pressure_level" in ds.dims else "level"
-    lat = slice(LAT_MAX, LAT_MIN) if ds.latitude[0] > ds.latitude[-1] else slice(LAT_MIN, LAT_MAX)
-    years = sorted(int(y) for y in years)
-    for v in variables:
-        for lev in levels:
-            da = ds[v].sel({lname: [lev], "latitude": lat, "longitude": slice(LON_MIN, LON_MAX),
-                            tname: slice(f"{years[0]}-01-01", f"{years[-1]}-12-31T23:59")})
-            da = da.sel({tname: da[tname].dt.hour.isin([0, 6, 12, 18])}).load()
-            for y, d in da.groupby(f"{tname}.year"):
-                out = Path(out_dir) / f"year_{y}" / f"era5_pressure_arco_{y}_{v}{lev}.nc"
-                out.parent.mkdir(parents=True, exist_ok=True)
-                d.to_dataset(name=v).to_netcdf(out, engine="h5netcdf",
-                                               encoding={v: {"zlib": True, "complevel": 4}})
-            print(f"[arco] {v}{lev} done", flush=True)
-            del da
+    so = dict(token="anon") if url.startswith("gs://") else None
+    return xr.open_zarr(url, chunks=None, storage_options=so, decode_timedelta=False)
+
+
+def _gcs_index(ds, levels):
+    """Integer indices of our box / levels in the global ARCO grid (lat 90→-90, lon 0→359.75)."""
+    import numpy as np
+    lat, lon = ds["latitude"].values, ds["longitude"].values
+    iy = np.where((lat <= LAT_MAX + 1e-6) & (lat >= LAT_MIN - 1e-6))[0]
+    ix = np.where((lon >= LON_MIN - 1e-6) & (lon <= LON_MAX + 1e-6))[0]
+    lv = list(ds["level"].values.astype(int))
+    missing = [l for l in levels if int(l) not in lv]
+    if missing:
+        raise ValueError(f"levels {missing} not in ARCO store (has {lv})")
+    il = [lv.index(int(l)) for l in levels]
+    return slice(iy[0], iy[-1] + 1), slice(ix[0], ix[-1] + 1), il
+
+
+def _read_step(ds, name, ti, il, sy, sx, tries=5):
+    import time
+    for k in range(tries):
+        try:
+            return ds[name].isel(time=ti, level=il, latitude=sy, longitude=sx).values.astype("float32")
+        except Exception as e:                      # transient GCS errors
+            if k == tries - 1:
+                raise
+            print(f"[gcs] retry {name} t={ti}: {type(e).__name__}", flush=True)
+            time.sleep(5 * (k + 1))
+
+
+def gcs_pressure_download(years, variables, levels, out_dir: str | Path, url: str = GCS_ARCO_URL,
+                          workers: int = 16, max_hours: float | None = None, era5t: bool = True,
+                          bench: bool = False) -> None:
+    """No queue, no key: read Google's public ARCO-ERA5 Zarr (0.25°, hourly, 37 levels) anonymously.
+
+    Each Zarr chunk is ONE time step of one variable, global, all 37 levels (~100 MB compressed),
+    so reading is network-bound; `workers` threads fetch different (variable, time) chunks at once
+    (workers=0 → measure 8/16/32 for ~2 min and keep the fastest).
+    Output: one NetCDF per month, era5_pressure/year_<y>/era5_pressure_gcs_<y>-<mm>.nc, laid out like
+    the CDS files (valid_time, pressure_level, latitude, longitude; vars z,t,q,u,v) so raw_index
+    picks it up unchanged. Finished months are skipped → re-running continues where it stopped.
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+    try:
+        import zarr
+        zarr.config.set({"async.concurrency": max(32, 2 * workers)})
+    except Exception:
+        pass
+
+    t_start = time.time()
+    ds = _open_gcs(url)
+    stop = pd.Timestamp(ds.attrs.get("valid_time_stop_era5t" if era5t else "valid_time_stop") or ds.time.values[-1])
+    print(f"[gcs] store {url}\n[gcs] ERA5 until {ds.attrs.get('valid_time_stop')}, ERA5T until "
+          f"{ds.attrs.get('valid_time_stop_era5t')} → using data up to {stop}", flush=True)
+    sy, sx, il = _gcs_index(ds, levels)
+    lat = ds["latitude"].values[sy]
+    lon = ds["longitude"].values[sx]
+    tindex = pd.DatetimeIndex(ds["time"].values)
+    names = {v: GCS_NAMES[v] for v in variables}
+
+    def month_times(y, m):
+        t = pd.date_range(f"{y}-{m:02d}-01", periods=pd.Period(f"{y}-{m:02d}").days_in_month * 4, freq="6h")
+        return t[t <= stop]
+
+    def measure(w):
+        y = int(sorted(years)[0])
+        t = month_times(y, 1)[: max(4, w // len(names) * 2)]
+        ti = tindex.get_indexer(t)
+        t0 = time.time()
+        with ThreadPoolExecutor(w) as p:
+            list(p.map(lambda a: _read_step(ds, *a), [(names[v], int(i), il, sy, sx) for v in names for i in ti]))
+        dt = (time.time() - t0) / len(t)
+        print(f"[gcs] bench: {w:>2} workers → {dt:.2f} s/step ≈ {dt * 1460 / 3600:.2f} h/year", flush=True)
+        return dt
+
+    if bench or workers <= 0:
+        res = {w: measure(w) for w in ([workers] if workers > 0 else (8, 16, 32))}
+        if bench:
+            return
+        workers = min(res, key=res.get)
+        print(f"[gcs] using {workers} workers", flush=True)
+    pool = ThreadPoolExecutor(workers)
+
+    for y in sorted(int(x) for x in years):
+        for m in range(1, 13):
+            out = Path(out_dir) / f"year_{y}" / f"era5_pressure_gcs_{y}-{m:02d}.nc"
+            if out.exists():
+                continue
+            t = month_times(y, m)
+            if len(t) == 0:
+                print(f"[gcs] {y}-{m:02d}: not in store yet (stop {stop}) — skipped", flush=True)
+                continue
+            if max_hours and (time.time() - t_start) / 3600 > max_hours:
+                print(f"[gcs] time budget {max_hours} h reached — re-run (with this output as input) to continue")
+                pool.shutdown(wait=False)
+                return
+            if len(t) < pd.Period(f"{y}-{m:02d}").days_in_month * 4:   # month not finished in the store yet
+                out = out.with_name(out.stem + "_partial.nc")          # full month is fetched on a later run
+            ti = tindex.get_indexer(t)
+            if (ti < 0).any():
+                raise ValueError(f"{y}-{m:02d}: {int((ti < 0).sum())} time steps missing in store")
+            t0 = time.time()
+            data = {v: np.empty((len(t), len(il), len(lat), len(lon)), "float32") for v in names}
+
+            def job(a):
+                v, k = a
+                data[v][k] = _read_step(ds, names[v], int(ti[k]), il, sy, sx)
+
+            list(pool.map(job, [(v, k) for k in range(len(t)) for v in names]))
+            dsm = xr.Dataset({v: (("valid_time", "pressure_level", "latitude", "longitude"), a)
+                              for v, a in data.items()},
+                             coords={"valid_time": t.values, "pressure_level": np.asarray(levels, "int64"),
+                                     "latitude": lat, "longitude": lon},
+                             attrs={"source": url, "note": "ARCO-ERA5 (Google), 6-hourly subset"})
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_suffix(".nc.part")
+            dsm.to_netcdf(tmp, engine="h5netcdf",
+                          encoding={v: {"zlib": True, "complevel": 1, "shuffle": True} for v in names})
+            tmp.rename(out)
+            dt = time.time() - t0
+            print(f"[gcs] {y}-{m:02d}: {len(t)} steps in {dt / 60:.1f} min ({dt / len(t):.2f} s/step), "
+                  f"{out.stat().st_size / 1e9:.2f} GB", flush=True)
+    pool.shutdown()
+    print(f"[gcs] done in {(time.time() - t_start) / 3600:.2f} h", flush=True)
 
 
 def mergir_urls(start: datetime, end: datetime) -> list[str]:

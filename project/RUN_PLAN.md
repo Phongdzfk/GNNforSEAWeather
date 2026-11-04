@@ -11,7 +11,7 @@ Tất cả chạy trên **Kaggle** (dữ liệu nằm ở đó). Code lấy từ
 ## Thứ tự chạy
 
 ```
-Bước 0 (CPU, chia 3 người)  00_download_pressure: tải 7 tầng × (z,t,q,u,v), mỗi notebook 2–3 năm
+Bước 0 (CPU, chia 3 người)  00_download_gcs: tải 7 tầng × (z,t,q,u,v) từ Google ARCO-ERA5, mỗi notebook ≤ 3 năm
                          │
          (Phong, CPU)    00a kiểm kê + stats ─► 00b cache train (3 phần, 3 notebook) ─► 00c val/test + climatology
                                                   │
@@ -31,8 +31,8 @@ Trong lúc Phong chạy bước 0 (vài giờ CPU), Hiếu và Tùng có thể k
 
 | ID | Người | Notebook | Đặt ở ô đầu | Input cần gắn | GPU ước tính |
 |---|---|---|---|---|---|
-| **D1–D6** | Phong 2, Hiếu 2, Tùng 2 | `00_download_pressure` (Save & Run All) | `YEARS='2015-2016'`, `'2017-2018'`, … `'2025-2026'` | — (Secrets `url`, `key`) | CPU, ≤ 12 h; chưa xong thì chạy version mới gắn output cũ |
-| **0a** | Phong | `00a_stats` | `CONFIG='configs/levels7.yaml'` | mọi output dữ liệu thô (single levels cũ + D1–D6 + NASA) | CPU |
+| **D1–D4** | Phong, Hiếu, Tùng, Phong | `00_download_gcs` (Save & Run All, Internet On) | `YEARS='2015-2017'`, `'2018-2020'`, `'2021-2023'`, `'2024-2026'` | — (không cần Secret) | CPU, ≤ 12 h; chưa xong thì chạy version mới gắn output cũ |
+| **0a** | Phong | `00a_stats` | `CONFIG='configs/levels7.yaml'` | mọi output dữ liệu thô (single levels cũ + D1–D4 + NASA) | CPU |
 | **0b** | Phong (×3) | `00b_cache_train` | `PART=0`, `1`, `2` | thô của các năm trong phần + output 0a | CPU, 3 notebook song song |
 | **0c** | Phong | `00c_cache_valtest` | — | thô 2025–2026 + output 0a + cả 3 phần 0b | CPU |
 | **B0** | Hiếu | `01_train_graphcast` | `CONFIG='configs/kaggle.yaml'` (14 kênh, đúng kiến trúc cũ) | dữ liệu | 1–2 phiên |

@@ -14,7 +14,8 @@ Dữ liệu thô ERA5 + NASA MERGIR có đủ **2015–2026** → train 2015–2
 
 | Notebook | Phụ trách | Accelerator | Input cần gắn | Output |
 |---|---|---|---|---|
-| `00_download_pressure` | chia 3 người | None (Save & Run All) | — | `era5_pressure/year_<y>/…nc`, `cds_requests.json` |
+| `00_download_gcs` | chia 3 người | None (Save & Run All, Internet On) | — | `era5_pressure/year_<y>/era5_pressure_gcs_<y>-<mm>.nc` |
+| `00_download_pressure` (dự phòng) | — | None (Save & Run All) | — | `era5_pressure/year_<y>/…nc`, `cds_requests.json` |
 | `00a_stats` | Phong | None | toàn bộ thư mục thô `year_<YYYY>` ERA5 + NASA | `stats/` (mean/std **chỉ trên train**, có `_meta.years`) |
 | `00b_cache_train` | Phong | None | thô các năm của phần + `00a` | `train_<năm>_raw_c<kênh>/` (mỗi phần ≤ ~17 GB; `PART=0,1,2` với 41 kênh) |
 | `00c_cache_valtest` | Phong | None | thô 2025–2026 + `00a` + mọi phần `00b` | `val_2025_raw_c*/`, `test_2026_raw_c*/`, `data_manifest.json`, `climatology_train.npz`, `diff_stats.json`, `graph/` |
@@ -26,6 +27,10 @@ Dữ liệu thô ERA5 + NASA MERGIR có đủ **2015–2026** → train 2015–2
 - Các bước 00 chỉ chạy lại khi dữ liệu hoặc stats thay đổi. Notebook sau tự dùng cache memmap được gắn làm input, không phải đọc lại NetCDF (đây chính là tối ưu "11 h → 6 h").
 - Train cache tách riêng (00b) và tự chia phần theo số kênh để mỗi output ≤ ~17 GB (giới hạn 20 GB/notebook).
 - Tái lập đúng thiết lập đồ án môn học cũ (train 2020–2024, Zarr cũ của nb3, stats `stat-compute`): thêm `--config configs/legacy_2020.yaml` và gắn các Zarr `brain_*`/`eye_*` + `stat-compute`.
+
+## Tải pressure levels: Google ARCO-ERA5 thay cho CDS
+
+`00_download_gcs` đọc bộ Zarr công khai `gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3` (ẩn danh, không key, không hàng đợi; ERA5 tới 2026-06-30, ERA5T tới gần hiện tại). Mỗi chunk = 1 bước thời gian × toàn cầu × 37 tầng, nên dù chỉ lấy vùng ĐNÁ vẫn phải tải nguyên chunk → nghẽn ở mạng, được bù bằng tải song song (`--workers`, 0 = tự đo). Đo tuần tự trên Kaggle: ~10 s/bước (≈ 4 h/năm). Tháng chưa đủ trong store (cuối 2026) được ghi là `…_partial.nc` và tải lại đủ ở lần chạy sau. Bộ ARCO trên CDS (time-series) chỉ lấy theo **một điểm**, không dùng được cho cả lưới.
 
 ## Lưu ý về các notebook tải ERA5 cũ
 

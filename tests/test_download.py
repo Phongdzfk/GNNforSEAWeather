@@ -90,3 +90,46 @@ def test_lost_state_adopts_queued_jobs_and_retries_rejected(tmp_path, monkeypatc
     fake.status[st["2015-04"]["request_id"]] = "rejected"
     out = dl.cds_fetch(state, tmp_path / "out", reqs=reqs)   # fetch re-submits it once
     assert out["2015-04"]["status"] in ("accepted", "submitted") and out["2015-04"].get("tries") == 2
+
+
+def test_gcs_download_layout(tmp_path, monkeypatch):
+    """Fake ARCO store (hourly, levels, lat descending, lon 0..360) → monthly CDS-like NetCDF read by raw_index.
+    A small box keeps the fake store tiny (the real domain would need GBs of RAM)."""
+    import numpy as np, pandas as pd, xarray as xr
+    from wfsea.data import download as dl
+    from wfsea.data.raw_index import scan_era5
+    LAT_MAX, LAT_MIN, LON_MIN, LON_MAX = 10.0, 8.0, 100.0, 102.5
+    for k, v in dict(LAT_MAX=LAT_MAX, LAT_MIN=LAT_MIN, LON_MIN=LON_MIN, LON_MAX=LON_MAX).items():
+        monkeypatch.setattr(dl, k, v)
+
+    t = pd.date_range("2019-12-31T00", "2020-02-01T00", freq="1h")
+    lat = np.arange(LAT_MAX + 1.0, LAT_MIN - 1.0 - 1e-9, -0.25)
+    lon = np.arange(LON_MIN - 1.0, LON_MAX + 1.0 + 1e-9, 0.25)
+    lev = np.array([100, 200, 300, 500, 700, 850, 925, 1000])
+    shape = (len(t), len(lev), len(lat), len(lon))
+    hours = ((t - t[0]) / pd.Timedelta("1h")).values.astype("float32")
+    base = np.broadcast_to(hours[:, None, None, None], shape)
+    store = xr.Dataset({n: (("time", "level", "latitude", "longitude"), (base + i).astype("float32"))
+                        for i, n in enumerate(dl.GCS_NAMES.values())},
+                       coords={"time": t, "level": lev, "latitude": lat, "longitude": lon},
+                       attrs={"valid_time_stop": "2020-01-31T23:00", "valid_time_stop_era5t": "2020-01-31T23:00"})
+    url = str(tmp_path / "arco.zarr")
+    store.chunk({"time": 1}).to_zarr(url)
+
+    out = tmp_path / "era5_pressure"
+    levels = [1000, 925, 850, 700, 500, 300, 200]
+    dl.gcs_pressure_download([2020], ["z", "t", "q", "u", "v"], levels, out, url=url, workers=4)
+    f = out / "year_2020" / "era5_pressure_gcs_2020-01.nc"
+    assert f.exists() and not (out / "year_2020" / "era5_pressure_gcs_2020-02.nc").exists()  # Feb > stop
+    with xr.open_dataset(f, engine="h5netcdf") as d:
+        assert d.sizes == {"valid_time": 124, "pressure_level": 7, "latitude": 9, "longitude": 11}
+        assert list(d.pressure_level.values) == levels
+        # value = hours since store start (+ var offset) → checks the time step mapping
+        h0 = (pd.Timestamp("2020-01-01T06") - t[0]) / pd.Timedelta("1h")
+        assert float(d["t"].isel(valid_time=1, pressure_level=0, latitude=3, longitude=5)) == h0 + 1
+    # second run skips the finished month
+    mtime = f.stat().st_mtime
+    dl.gcs_pressure_download([2020], ["z", "t", "q", "u", "v"], levels, out, url=url, workers=4)
+    assert f.stat().st_mtime == mtime
+    idx = [r for r in scan_era5([str(out)]) if r.kind == "pressure"]
+    assert idx and set(idx[0].vars) == {"z", "t", "q", "u", "v"} and idx[0].step_h == 6.0
