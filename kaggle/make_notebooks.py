@@ -54,8 +54,10 @@ NOTEBOOKS = {
             "YEARS  = '2015-2016'   # ← mỗi notebook một nhóm năm\n"
             "CONFIG = 'configs/levels7.yaml'",
             "!pip install -q 'cdsapi>=0.7.7'",
+            "# Gửi request (request giống hệt đã có trên CDS từ lần chạy trước sẽ được dùng lại, không gửi trùng)\n"
             "!wfsea download-submit --config {CONFIG} --years {YEARS}",
-            "!wfsea download-fetch  --config {CONFIG} --wait-hours 11",
+            "# Chờ và tải tối đa 11 h; tháng bị CDS từ chối sẽ tự gửi lại (tối đa 4 lần)\n"
+            "!wfsea download-fetch  --config {CONFIG} --years {YEARS} --wait-hours 11",
             "!wfsea raw-index --config {CONFIG} paths.era5_raw_root=/kaggle/working/era5_pressure",
         ],
     },

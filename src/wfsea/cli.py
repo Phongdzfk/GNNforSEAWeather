@@ -152,7 +152,8 @@ def main(argv=None):
             st = dl.cds_submit(reqs, state, max_new=args.max_new)
             print(f"[cds] {sum(1 for k in reqs if k in st)} / {len(reqs)} months submitted; state → {state}")
         elif cmd == "download-fetch":
-            dl.cds_fetch(state, dest, wait_hours=args.wait_hours)
+            reqs = dl.pressure_requests(years, sc["pressure_vars"], sc["levels"]) if args.years else None
+            dl.cds_fetch(state, dest, wait_hours=args.wait_hours, reqs=reqs)
         else:
             url = cfg.get("download", {}).get("arco_url")
             if not url:

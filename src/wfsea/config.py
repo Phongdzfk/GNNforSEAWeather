@@ -125,11 +125,13 @@ def find_file(name: str, roots: list[str] | None = None) -> Path:
 def resolve_paths(cfg: Config) -> Config:
     """Fill in output/scratch dirs and create them."""
     p = cfg.setdefault("paths", {})
-    if ON_KAGGLE:
-        p.setdefault("out", "/kaggle/working")
-        p.setdefault("scratch", "/kaggle/tmp/wfsea_cache")
-    p["out"] = p.get("out") or "outputs"
-    p["scratch"] = p.get("scratch") or "/tmp/wfsea_cache"
+    # NB: base.yaml has `out: null`, so the key exists — setdefault() would keep None and everything
+    # landed in ./outputs inside the cloned repo (lost when a Kaggle session ends). Test for falsy instead.
+    if not p.get("out"):
+        p["out"] = "/kaggle/working" if ON_KAGGLE else "outputs"
+    if not p.get("scratch"):
+        p["scratch"] = "/kaggle/tmp/wfsea_cache" if ON_KAGGLE else "/tmp/wfsea_cache"
+    p["out"] = str(Path(p["out"]).resolve())
     for key in ("out", "scratch"):
         Path(p[key]).mkdir(parents=True, exist_ok=True)
     return cfg

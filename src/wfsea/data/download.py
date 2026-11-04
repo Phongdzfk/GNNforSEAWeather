@@ -94,6 +94,10 @@ def cds_submit(reqs: dict[str, dict], state_path: str | Path, dataset: str = "re
     state_path = Path(state_path)
     state = _load_state(state_path)
     client, n = _client(), 0
+    adopted = adopt_server_jobs(client, reqs, state)
+    if adopted:
+        print(f"[cds] re-using {len(adopted)} request(s) already queued on CDS: {sorted(adopted)[:6]}...")
+        _save_state(state_path, state)
     for key, req in reqs.items():
         if key in state and state[key].get("status") not in ("failed", "rejected", "deleted", "dismissed"):
             continue
@@ -111,6 +115,36 @@ def cds_submit(reqs: dict[str, dict], state_path: str | Path, dataset: str = "re
     return state
 
 
+def _req_key(req: dict) -> tuple:
+    one = lambda v: tuple(sorted(map(str, v if isinstance(v, (list, tuple)) else [v])))
+    return (one(req.get("year", [])), one(req.get("month", [])), one(req.get("variable", [])),
+            one(req.get("pressure_level", [])), one(req.get("time", [])))
+
+
+def adopt_server_jobs(client, reqs: dict[str, dict], state: dict, limit: int = 200) -> list[str]:
+    """Find identical requests already queued/finished on CDS (e.g. from a run whose state file was lost)
+    and record their IDs instead of submitting duplicates. Returns the adopted keys."""
+    wanted = {_req_key(r): k for k, r in reqs.items()
+              if k not in state or state[k].get("status") in ("failed", "rejected", "submit_error")}
+    if not wanted:
+        return []
+    try:
+        ids = client.get_jobs(limit=limit, sortby="-created", status=["accepted", "running", "successful"]).request_ids
+    except Exception as e:
+        print(f"[cds] could not list existing jobs ({e}); submitting normally")
+        return []
+    adopted = []
+    for rid in ids:
+        try:
+            key = wanted.get(_req_key(client.get_remote(rid).request))
+        except Exception:
+            continue
+        if key and key not in adopted:
+            state[key] = {"request_id": rid, "status": "submitted", "adopted": True}
+            adopted.append(key)
+    return adopted
+
+
 def merge_states(paths) -> dict:
     """Combine request-state files from several Kaggle runs (attached as inputs) + the current one."""
     order = {"downloaded": 4, "successful": 3, "running": 2, "accepted": 1, "submitted": 1}
@@ -123,7 +157,8 @@ def merge_states(paths) -> dict:
 
 
 def cds_fetch(state_path: str | Path, out_dir: str | Path, prefix: str = "era5_pressure",
-              wait_hours: float = 0.0, poll_minutes: float = 10.0) -> dict:
+              wait_hours: float = 0.0, poll_minutes: float = 10.0, reqs: dict | None = None,
+              max_tries: int = 4) -> dict:
     """Phase 2: download every request that is ready. With wait_hours > 0 keep polling until all are
     downloaded or the time is up (use ~11 h in a Kaggle "Save & Run All" session).
     Nothing is ever re-submitted here."""
@@ -131,8 +166,22 @@ def cds_fetch(state_path: str | Path, out_dir: str | Path, prefix: str = "era5_p
     deadline = _time.time() + wait_hours * 3600
     while True:
         state = _fetch_once(Path(state_path), Path(out_dir), prefix)
-        pending = [k for k, st in state.items() if st.get("status") not in ("downloaded", "failed", "rejected",
-                                                                            "submit_error", "dismissed", "deleted")]
+        if reqs:   # CDS sometimes rejects when a user has too many queued jobs → retry those later
+            retry = {k: reqs[k] for k, st in state.items() if k in reqs
+                     and st.get("status") in ("failed", "rejected", "submit_error") and st.get("tries", 1) < max_tries}
+            if retry:
+                for k in retry:
+                    state[k]["tries"] = state[k].get("tries", 1) + 1
+                _save_state(Path(state_path), state)
+                tries = {k: state[k]["tries"] for k in retry}
+                state = cds_submit(retry, state_path)
+                for k, t in tries.items():
+                    state[k]["tries"] = t
+                _save_state(Path(state_path), state)
+        retryable = lambda st: reqs and st.get("tries", 1) < max_tries
+        pending = [k for k, st in state.items()
+                   if st.get("status") not in ("downloaded", "dismissed", "deleted")
+                   and (st.get("status") not in ("failed", "rejected", "submit_error") or retryable(st))]
         if not pending or _time.time() + poll_minutes * 60 > deadline:
             if pending:
                 print(f"[cds] {len(pending)} still pending — run fetch again later: {pending[:6]}...")
@@ -154,6 +203,12 @@ def _fetch_once(state_path: Path, out_dir: Path, prefix: str) -> dict:
             remote = client.get_remote(st["request_id"])
             status = remote.status
             st["status"] = status
+            if status in ("failed", "rejected") and "error" not in st:
+                try:
+                    remote.get_results()
+                except Exception as e:      # the API puts the reason in the error body
+                    st["error"] = str(e)[:500]
+                print(f"[cds] {key} {status}: {st.get('error', '(no reason given)')}")
             if status == "successful":
                 target.parent.mkdir(parents=True, exist_ok=True)
                 tmp = remote.download(str(target) + ".part")
@@ -166,6 +221,9 @@ def _fetch_once(state_path: Path, out_dir: Path, prefix: str) -> dict:
         counts[st["status"]] = counts.get(st["status"], 0) + 1
         _save_state(state_path, state)
     print("[cds] status:", counts)
+    bad = sorted(k for k, st in state.items() if st.get("status") in ("failed", "rejected", "submit_error"))
+    if bad:
+        print(f"[cds] {len(bad)} month(s) to re-submit with `download-submit` (done automatically next run): {bad}")
     return state
 
 
