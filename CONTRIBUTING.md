@@ -14,11 +14,12 @@ Train/eval thật chạy trên Kaggle — xem [`kaggle/README.md`](kaggle/README
 
 ## Repo và remote
 
-- **Làm việc hằng ngày:** `origin` = `tuk3kCS/WeatherForecast` (fork). Mọi nhánh, Pull Request và notebook Kaggle dùng repo này.
+- **Làm việc hằng ngày:** `origin` = `Phongdzfk/GNNforSEAWeather` (public). Mọi nhánh, Pull Request và notebook Kaggle dùng repo này.
 - **Bản nộp theo mốc:** `upstream` = `ducnx/WeatherForecast` (repo của thầy). Không ai sửa code trực tiếp trên đó.
 
 ```bash
-git remote -v                      # origin → tuk3kCS/WeatherForecast, upstream → ducnx/WeatherForecast
+git remote add upstream https://github.com/ducnx/WeatherForecast.git   # một lần
+git remote -v                      # origin → Phongdzfk/GNNforSEAWeather, upstream → ducnx/WeatherForecast
 # đến mốc (có cache dữ liệu, có v2, có v3…): một người đẩy main lên repo thầy, giữ nguyên lịch sử
 git checkout main && git pull origin main
 git push upstream main

@@ -4,13 +4,9 @@ Dữ liệu nằm trên Kaggle nên toàn bộ train/eval chạy ở đó. Nguy�
 
 ## Thiết lập một lần (mỗi người)
 
-Ô đầu mỗi notebook clone code từ **repo làm việc `tuk3kCS/WeatherForecast`** (biến `REPO`).
+Ô đầu mỗi notebook clone code từ **repo làm việc public `Phongdzfk/GNNforSEAWeather`** (biến `REPO`) — không cần token hay secret GitHub nào. Thử nghiệm trên nhánh khác: đổi `BRANCH` ở cùng ô.
 
-- Repo public: không cần secret gì.
-- Nếu chuyển repo sang private: Tùng (chủ repo) tạo **một** fine-grained token (*Resource owner* = `tuk3kCS`, *Only select repositories* = `WeatherForecast`, *Contents: Read-only*, có hạn dùng). Cả nhóm dán token đó vào Kaggle Secret `GITHUB_TOKEN`. Fine-grained token chỉ đọc được repo **của chính người tạo**, nên token do người khác tự tạo sẽ không dùng được.
-- Thử nghiệm trên nhánh khác: đổi `BRANCH` ở cùng ô.
-
-Sau đó import các notebook trong `kaggle/notebooks/` (*File → Import notebook*).
+Sau đó import các notebook trong `kaggle/notebooks/` (*File → Import notebook*). Notebook tải dữ liệu còn cần Kaggle Secrets `url`, `key` của CDS.
 
 ## Thứ tự chạy
 

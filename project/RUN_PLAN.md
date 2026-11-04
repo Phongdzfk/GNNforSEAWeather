@@ -4,7 +4,7 @@ Tất cả chạy trên **Kaggle** (dữ liệu nằm ở đó). Code lấy từ
 
 ## Chuẩn bị (mỗi người, một lần)
 
-1. Code trên Kaggle được clone từ repo làm việc `tuk3kCS/WeatherForecast` (public → không cần secret; private → dùng token read-only do Tùng tạo, xem `kaggle/README.md`).
+1. Code trên Kaggle được clone từ repo làm việc public `Phongdzfk/GNNforSEAWeather` — không cần token GitHub.
 2. Import các notebook trong `kaggle/notebooks/` (*File → Import notebook*).
 3. Phong chia sẻ 3 dataset dữ liệu (bước 0) cho Hiếu và Tùng: trên trang output của notebook → *New Dataset* → để Private → *Settings → Sharing* → thêm hai bạn.
 

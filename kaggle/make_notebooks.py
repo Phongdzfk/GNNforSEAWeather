@@ -12,13 +12,12 @@ from pathlib import Path
 HERE = Path(__file__).parent
 
 BOOTSTRAP = r'''# ── Bootstrap: clone the repo, install wfsea ──
-# REPO: repo làm việc của nhóm (fork của Tùng). Public → không cần secret.
-# Nếu fork để private: Tùng (chủ repo) tạo fine-grained token, resource owner = tuk3kCS,
-# chỉ repo WeatherForecast, Contents: Read-only → cả nhóm lưu vào Kaggle Secret GITHUB_TOKEN.
+# REPO: repo làm việc của nhóm (public → không cần secret). Nếu sau này chuyển sang private:
+# chủ repo tạo fine-grained token (Contents: Read-only) → Kaggle Secret GITHUB_TOKEN, bật cho notebook.
 import os, subprocess, sys
 os.environ["GIT_TERMINAL_PROMPT"] = "0"   # never wait for a username prompt
 
-REPO   = "tuk3kCS/WeatherForecast"  # ← repo làm việc; repo của thầy (ducnx/WeatherForecast) chỉ nhận bản theo mốc
+REPO   = "Phongdzfk/GNNforSEAWeather"  # ← repo làm việc (public); repo của thầy ducnx/WeatherForecast chỉ nhận bản theo mốc
 BRANCH = "main"                    # ← nhánh đang thử nghiệm, ví dụ "hieu/geo-edges"
 DEST = "/kaggle/tmp/WeatherForecast" if os.path.isdir("/kaggle/tmp") else "/tmp/WeatherForecast"
 try:
