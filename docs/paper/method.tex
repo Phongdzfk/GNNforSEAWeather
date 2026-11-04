@@ -1,0 +1,86 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Problem Formulation and Residual Learning}
+We formulate regional weather forecasting as an autoregressive dynamical system. Let $\mathbf{X}_t \in \mathbb{R}^{N \times C}$ denote the atmospheric state vector over a spatial grid of $N$ nodes at discrete forecast time $t$, where $C$ represents the dynamic channels. The objective is to forecast the atmospheric state at future time steps $\mathbf{X}_{t+1}, \mathbf{X}_{t+2}, \dots, \mathbf{X}_{t+K}$ at constant time intervals $\Delta t = 6$ hours.
+
+To ensure numerical stability during multi-step rollouts and mitigate error propagation, we train the model to predict the temporal increment (residual state) $\Delta \mathbf{X}_{t+1} = \mathbf{X}_{t+1} - \mathbf{X}_t$ conditioned on a two-step historical context $\{\mathbf{X}_{t-1}, \mathbf{X}_t\}$ alongside static invariant geographical fields $\mathbf{S} \in \mathbb{R}^{N \times C_s}$ and satellite observations $\mathbf{O}_t \in \mathbb{R}^{N \times C_o}$:
+\begin{equation}
+\Delta \hat{\mathbf{X}}_{t+1} = \mathcal{M}_\theta\left(\mathbf{X}_{t-1}, \mathbf{X}_t, \mathbf{O}_t, \mathbf{S}\right)
+\end{equation}
+\begin{equation}
+\hat{\mathbf{X}}_{t+1} = \mathbf{X}_t + \Delta \hat{\mathbf{X}}_{t+1}
+\end{equation}
+where $\mathcal{M}_\theta$ denotes the neural network parameterized by learnable weights $\theta$. During autoregressive rollout, predictions $\hat{\mathbf{X}}_{t+1}$ are fed recursively as inputs to predict subsequent lead times $\hat{\mathbf{X}}_{t+2}, \dots, \hat{\mathbf{X}}_{t+K}$.
+
+\subsection{Data Sources and Region of Study}
+The domain of interest spans Southeast Asia, defined geographically by latitude bounds $[11^\circ\text{S}, 28.5^\circ\text{N}]$ and longitude bounds $[92^\circ\text{E}, 142^\circ\text{E}]$. Discretized at a regular horizontal resolution of $0.25^\circ \times 0.25^\circ$ ($\sim 28\text{ km}$ at the equator), the observation grid contains $N_{lat} = 159$ by $N_{lon} = 201$, yielding exactly $N = 31,959$ grid nodes.
+
+\textbf{1) ERA5 Reanalysis (The ``Brain'' Branch):}
+We ingest 6-hourly atmospheric fields from ECMWF ERA5~\cite{hersbach2020era5}:
+\begin{itemize}
+    \item \textit{Surface variables:} 2-meter air temperature ($t2m$), 2-meter dewpoint temperature ($d2m$), 10-meter zonal wind ($u10$), 10-meter meridional wind ($v10$), and mean sea-level pressure ($msl$).
+    \item \textit{Accumulated variable:} Total precipitation ($tp$) accumulated over the preceding 6 hours.
+    \item \textit{Pressure-level atmospheric variables:} Geopotential ($z$), specific humidity ($q$), zonal wind ($u$), and meridional wind ($v$) evaluated at two critical synoptic levels: $850\text{ hPa}$ (monitoring planetary boundary layer monsoon moisture transport) and $500\text{ hPa}$ (monitoring middle-tropospheric steering flows).
+    \item \textit{Static invariant fields:} Land-sea mask ($lsm$) and surface geopotential ($z_{surf}$).
+\end{itemize}
+In total, 14 dynamic channels are forecasted at every step.
+
+\textbf{2) NASA GPM MERGIR Satellite Imagery (The ``Eye'' Branch):}
+We retrieve infrared brightness temperature ($T_b$) at $4\text{ km}$ spatial resolution and 30-minute intervals from the NASA GPM MERGIR dataset~\cite{janowiak2001mergir}. $T_b$ serves as a direct physical proxy for cloud-top temperature and convective storm intensity (deep convective clouds exhibit cold $T_b$ signatures below $220\text{ K}$). Satellite frames are temporally synchronized to 6-hourly reanalysis timestamps ($00, 06, 12, 18\text{ UTC}$) and spatially resampled via bilinear interpolation onto the target $0.25^\circ$ grid.
+
+\textbf{3) Chronological Partitioning and Anti-Leakage Protocol:}
+To guarantee methodological rigor and prevent future information leakage, data from 2020 to 2024 (7,303 samples) are allocated for model training, the year 2025 (1,459 samples) serves as the validation set for early stopping and hyperparameter selection, and the year 2026 (587 samples) is held out as the test set. Global mean and standard deviation normalization parameters are calculated strictly from the training years ($2020-2024$).
+
+\subsection{Multiscale Graph Topology (Grid--Mesh--Grid)}
+A naive GNN operating directly on all pairwise grid nodes would incur prohibitive memory and computational complexity. WeatherForecast-SEA implements an efficient hierarchical multiscale architecture comprising three distinct subgraphs:
+
+\begin{figure*}[!t]
+\centering
+\fbox{\parbox{0.95\textwidth}{\centering \textbf{[Graph Topology Architecture Diagram]} \\
+\textit{Fine Observation Grid $G$ ($0.25^\circ$, 31,959 nodes)} $\xrightarrow{E_{G \to M}}$ \textit{Coarse Mesh $M$ ($2.0^\circ$, 500 nodes)} $\xrightarrow{E_{M \to M}}$ \textit{4-Layer GNN Processor} $\xrightarrow{E_{M \to G}}$ \textit{Fine Observation Grid $G$}}}
+\caption{The hierarchical Grid--Mesh--Grid information flow in WeatherForecast-SEA. (1) Encoder projects observation features to the latent mesh via $k$-NN edges. (2) Processor executes 4 rounds of message passing on the $2^\circ$ mesh. (3) Decoder projects updated mesh representations back to observation nodes to output residual forecast fields.}
+\label{fig:arch}
+\end{figure*}
+
+\begin{enumerate}
+    \item \textbf{Grid-to-Mesh Encoder ($G \to M$):} The fine observation grid $G$ ($31,959$ nodes) is mapped to a regular coarse mesh $M$ ($2^\circ \times 2^\circ$ spacing, 500 nodes). Bipartite directed edges are constructed using $k$-nearest neighbors ($k=4$), resulting in 127,836 encoder edges. Each edge carries normalized spatial displacement vectors $(\Delta \text{lat}, \Delta \text{lon}, \|\Delta\mathbf{x}\|)$.
+    \item \textbf{Mesh-to-Mesh Processor ($M \to M$):} The latent mesh $M$ captures long-range spatial correlations. Directed edges are defined using an 8-connectivity neighborhood over the 500 mesh nodes, yielding 3,734 intra-mesh edges.
+    \item \textbf{Mesh-to-Grid Decoder ($M \to G$):} Symmetrically to the encoder, updated latent features on the coarse mesh nodes are projected back onto the fine grid nodes using inverse bipartite connectivity.
+\end{enumerate}
+
+\subsection{Neural Architecture and Message Passing}
+The complete model operates in three sequential phases:
+
+\textbf{1) Encoder:} Each grid node $v \in G$ initializes an input feature vector $\mathbf{x}_v \in \mathbb{R}^{D_{in}}$ concatenating historical atmospheric states at $t-1$ and $t$, satellite $T_b$, static fields, and positional sine/cosine coordinates ($D_{in} = 38$). A 2-layer Multilayer Perceptron (MLP) with SiLU non-linearities and LayerNorm maps $\mathbf{x}_v$ into hidden dimension $d_h = 128$. Bipartite message passing aggregates grid features into mesh representations $\mathbf{h}_m^{(0)} \in \mathbb{R}^{d_h}$:
+\begin{equation}
+\mathbf{m}_{v \to m} = \text{MLP}_{enc}\left(\left[\mathbf{x}_v, \mathbf{h}_m, \mathbf{e}_{vm}\right]\right)
+\end{equation}
+\begin{equation}
+\mathbf{h}_m^{(0)} = \text{LayerNorm}\left(\mathbf{h}_m + \frac{1}{|\mathcal{N}_G(m)|} \sum_{v \in \mathcal{N}_G(m)} \mathbf{m}_{v \to m}\right)
+\end{equation}
+
+\textbf{2) Processor:} The processor consists of $L = 4$ identical GNN message-passing layers operating over $M \to M$. In each layer $l \in \{1, \dots, L\}$, edge attributes and node representations are iteratively updated via residual connections:
+\begin{equation}
+\mathbf{m}_{u \to v}^{(l)} = \text{MLP}_{edge}^{(l)}\left(\left[\mathbf{h}_u^{(l-1)}, \mathbf{h}_v^{(l-1)}, \mathbf{e}_{uv}\right]\right)
+\end{equation}
+\begin{equation}
+\mathbf{h}_v^{(l)} = \mathbf{h}_v^{(l-1)} + \text{MLP}_{node}^{(l)}\left(\left[\mathbf{h}_v^{(l-1)}, \frac{1}{|\mathcal{N}_M(v)|} \sum_{u \in \mathcal{N}_M(v)} \mathbf{m}_{u \to v}^{(l)}\right]\right)
+\end{equation}
+
+\textbf{3) Decoder:} Mesh features $\mathbf{h}_m^{(L)}$ are mapped back to fine grid nodes $v \in G$ via bipartite edges $E_{M \to G}$, followed by a final linear projection head producing the 14 residual output variables $\Delta \hat{\mathbf{X}}_{t+1} \in \mathbb{R}^{N \times 14}$. The total parameter count of WeatherForecast-SEA is strictly bounded to \textbf{538,382 parameters}, permitting high execution speed and fitting easily within consumer GPU memory.
+
+\subsection{Latitude-Weighted Loss Function}
+Because meridians converge toward the poles on a regular latitude-longitude grid, grid cells shrink in true surface area as latitude increases (proportional to $\cos \phi$). To eliminate geometric over-representation of high-latitude regions, we optimize a latitude-weighted Root Mean Square Error (RMSE) loss:
+\begin{equation}
+\mathcal{L} = \sqrt{\frac{1}{N \cdot C} \sum_{c=1}^C \sum_{i=1}^N w_i \left(y_{i, c} - \hat{y}_{i, c}\right)^2}
+\end{equation}
+where $w_i = \frac{\cos(\phi_i)}{\frac{1}{N}\sum_{j=1}^N \cos(\phi_j)}$ denotes the normalized area weight of node $i$ located at latitude $\phi_i$.
+
+\subsection{Resource-Constrained Systems Engineering}
+Training deep atmospheric models on consumer hardware (such as Kaggle notebooks with 30 GB disk space and 16 GB GPU VRAM) encounters severe I/O bottlenecks. Standard chunked Zarr readers incurred over $100\times$ redundant decompression per epoch. To resolve this, we engineered three crucial systems-level enhancements:
+\begin{itemize}
+    \item \textbf{One-Time Float16 Memory-Mapped Pre-Decoding:} Raw NetCDF/Zarr files are converted once into contiguous float16 NumPy binary memory-mapped arrays on disk. This enables instantaneous zero-copy kernel page caching, reducing epoch duration by 45\% (training runtime dropped from 11 hours to 6 hours per run) and completely eliminating host out-of-memory (OOM) crashes.
+    \item \textbf{Vectorized Sparse Message Passing:} Message aggregation is formulated as batch sparse matrix multiplications using PyTorch Geometric, removing looping overhead across graph edges.
+    \item \textbf{Mixed-Precision and Multi-GPU Parallelism:} Automatic Mixed Precision (torch.cuda.amp) and PyTorch DataParallel across dual T4 GPUs allowed a batch size of 4 with gradient accumulation.
+\end{itemize}

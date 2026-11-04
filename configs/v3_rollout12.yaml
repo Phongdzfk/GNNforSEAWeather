@@ -1,0 +1,13 @@
+# v3 stage 2 — continue on 12-step (72 h) rollouts. Attach the v3_rollout4 output.
+inherit: v2.yaml
+run_name: v3_rollout12
+
+train:
+  init_from: v3_rollout4/best.pt
+  rollout_steps: 12
+  grad_checkpoint: true
+  batch_size: 1
+  lr: 1.0e-5
+  epochs: 3
+  patience: 2
+  max_steps_per_epoch: 3000   # a fraction of the data per epoch keeps one epoch under ~3 h

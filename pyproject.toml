@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wfsea"
+version = "0.1.0"
+description = "WeatherForecast-SEA: regional GraphCast-style GNN for Southeast Asia (ERA5 + NASA MERGIR)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Dang Tuan Phong" },
+  { name = "Tran Minh Hieu" },
+  { name = "Nguyen Hoang Tung" },
+]
+# torch is intentionally NOT pinned here: Kaggle images ship a CUDA build
+# and re-installing it wastes ~10 minutes per session.
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "pandas>=2.0",
+  "xarray>=2023.1",
+  "zarr>=2.14",
+  "dask>=2023.1",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+download = ["cdsapi>=0.7", "netCDF4>=1.6", "h5netcdf>=1.1", "requests>=2.31"]
+viz = ["matplotlib>=3.7"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+wfsea = "wfsea.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

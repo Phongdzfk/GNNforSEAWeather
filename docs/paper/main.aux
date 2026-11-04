@@ -1,0 +1,106 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{bauer2015quiet}
+\citation{brenowitz2018prognostic}
+\citation{pathak2022fourcastnet}
+\citation{bi2023accurate}
+\citation{lam2023learning}
+\citation{chen2023fuxi}
+\citation{hersbach2020era5}
+\citation{lam2023learning}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\citation{janowiak2001mergir}
+\citation{bauer2015quiet,lynch2008origins}
+\citation{skamarock2008description}
+\citation{weyn2020improving,rasp2020weatherbench}
+\citation{pathak2022fourcastnet}
+\citation{bi2023accurate}
+\citation{lam2023learning}
+\citation{chen2023fuxi}
+\citation{chen2023fengwu}
+\citation{nguyen2023climax}
+\citation{bodnar2024aurora}
+\citation{lang2024aifs}
+\citation{price2024gencast}
+\citation{schmude2024prithvi}
+\citation{han2024fengwu_ghr}
+\citation{zhong2024fuxi_extreme}
+\citation{kochkov2024neuralgcm}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Numerical Weather Prediction and Regional Forecasting}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Deep Learning for Global Weather Forecasting}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Atmospheric Foundation Models and Generative Ensembles}{2}{subsection.2.3}\protected@file@percent }
+\citation{larsson2025diffusion_lam}
+\citation{wu2026puyun_ldm}
+\citation{luitel2026aircast_sr}
+\citation{chen2025stormnet}
+\citation{bronstein2017geometric}
+\citation{battaglia2018relational,keisler2022forecasting}
+\citation{bonev2023spherical}
+\citation{vandal2017deepsd}
+\citation{janowiak2001mergir}
+\citation{hersbach2020era5}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}The 2025--2026 Frontier: Diffusion LAMs, Latent Consistency, and Tropical GNNs}{3}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Graph Neural Networks in Atmospheric Dynamics}{3}{subsection.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Regional AI Weather Forecasting and Multimodal Fusion}{3}{subsection.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Methodology}{3}{section.3}\protected@file@percent }
+\newlabel{sec:method}{{3}{3}{Methodology}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Problem Formulation and Residual Learning}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Data Sources and Region of Study}{3}{subsection.3.2}\protected@file@percent }
+\citation{janowiak2001mergir}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Multiscale Graph Topology (Grid--Mesh--Grid)}{4}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Neural Architecture and Message Passing}{4}{subsection.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Latitude-Weighted Loss Function}{4}{subsection.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Resource-Constrained Systems Engineering}{4}{subsection.3.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces The hierarchical Grid--Mesh--Grid information flow in WeatherForecast-SEA. (1) Encoder projects observation features to the latent mesh via $k$-NN edges. (2) Processor executes 4 rounds of message passing on the $2^\circ $ mesh. (3) Decoder projects updated mesh representations back to observation nodes to output residual forecast fields.}}{5}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:arch}{{1}{5}{The hierarchical Grid--Mesh--Grid information flow in WeatherForecast-SEA. (1) Encoder projects observation features to the latent mesh via $k$-NN edges. (2) Processor executes 4 rounds of message passing on the $2^\circ $ mesh. (3) Decoder projects updated mesh representations back to observation nodes to output residual forecast fields}{figure.caption.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experimental Evaluation}{5}{section.4}\protected@file@percent }
+\newlabel{sec:exp}{{4}{5}{Experimental Evaluation}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Experimental Setup and Evaluation Protocol}{5}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Evaluation Metrics}{5}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Results and Baseline Comparison}{5}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Diagnostic and Spatial Analyses}{5}{subsection.4.4}\protected@file@percent }
+\bibstyle{IEEEtran}
+\bibdata{references}
+\bibcite{bauer2015quiet}{1}
+\bibcite{brenowitz2018prognostic}{2}
+\bibcite{pathak2022fourcastnet}{3}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Quantitative comparison of WeatherForecast-SEA against Persistence and U-Net baselines at lead times of +24h and +72h on the held-out test year (2026). Units: $t2m$ [K], $msl$ [hPa], $z@500$ [$m^2/s^2$], $u10$ [m/s], $q@850$ [g/kg]. Lower RMSE is better; higher ACC is better.}}{6}{table.caption.2}\protected@file@percent }
+\newlabel{tab:main_results}{{1}{6}{Quantitative comparison of WeatherForecast-SEA against Persistence and U-Net baselines at lead times of +24h and +72h on the held-out test year (2026). Units: $t2m$ [K], $msl$ [hPa], $z@500$ [$m^2/s^2$], $u10$ [m/s], $q@850$ [g/kg]. Lower RMSE is better; higher ACC is better}{table.caption.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion and Future Work}{6}{section.5}\protected@file@percent }
+\newlabel{sec:conclusion}{{5}{6}{Conclusion and Future Work}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Research Gaps and Roadmap for Operational Systems}{6}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{6}{section*.3}\protected@file@percent }
+\bibcite{bi2023accurate}{4}
+\bibcite{lam2023learning}{5}
+\bibcite{chen2023fuxi}{6}
+\bibcite{hersbach2020era5}{7}
+\bibcite{janowiak2001mergir}{8}
+\bibcite{lynch2008origins}{9}
+\bibcite{skamarock2008description}{10}
+\bibcite{weyn2020improving}{11}
+\bibcite{rasp2020weatherbench}{12}
+\bibcite{chen2023fengwu}{13}
+\bibcite{nguyen2023climax}{14}
+\bibcite{bodnar2024aurora}{15}
+\bibcite{lang2024aifs}{16}
+\bibcite{price2024gencast}{17}
+\bibcite{schmude2024prithvi}{18}
+\bibcite{han2024fengwu_ghr}{19}
+\bibcite{zhong2024fuxi_extreme}{20}
+\bibcite{kochkov2024neuralgcm}{21}
+\bibcite{larsson2025diffusion_lam}{22}
+\bibcite{wu2026puyun_ldm}{23}
+\bibcite{luitel2026aircast_sr}{24}
+\bibcite{chen2025stormnet}{25}
+\bibcite{bronstein2017geometric}{26}
+\bibcite{battaglia2018relational}{27}
+\bibcite{keisler2022forecasting}{28}
+\bibcite{bonev2023spherical}{29}
+\bibcite{vandal2017deepsd}{30}
+\gdef \@abspage@last{7}

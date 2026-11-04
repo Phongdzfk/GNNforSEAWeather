@@ -1,0 +1,17 @@
+# GraphCast-SEA v2 — all cheap improvements together (group A + deeper processor).
+# Train from scratch on 2015–2024. Compare against the baseline (base.yaml) on the same eval.
+inherit: kaggle.yaml
+run_name: v2
+
+features:
+  time: true        # sin/cos hour-of-day, day-of-year  (diurnal cycle)
+  solar: true       # top-of-atmosphere insolation
+
+graph:
+  edge_features: geo   # haversine distance + direction on every edge (mesh edges were all zeros)
+
+model:
+  n_layers: 12      # processor runs on only 500 mesh nodes → depth is cheap
+
+train:
+  loss_norm: delta  # ΔX normalised by tendency std (needs diff_stats.json from 00c, else computed)

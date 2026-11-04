@@ -1,0 +1,73 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Large data & artifacts
+*.zarr
+*.nc
+*.nc4
+*.grib
+*.grib2
+data/raw/
+data/processed/
+
+# Office temp locks
+~$*.doc*
+~$*.ppt*
+~$*.xls*
+
+# wfsea outputs & caches
+outputs/
+*.pt
+*.f16
+*.u8
+*.npz
+data_manifest.json
+.pytest_cache/

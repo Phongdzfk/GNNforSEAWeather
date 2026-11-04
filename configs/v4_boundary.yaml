@@ -1,0 +1,10 @@
+# v4 — v3 + lateral boundary forcing (2° ERA5 band). Report as "ERA5 boundary" (an upper bound
+# of what a global-forecast boundary would give). Fine-tune from v3, or train v2-style from scratch.
+inherit: v3_rollout12.yaml
+run_name: v4_boundary
+
+boundary:
+  width_deg: 2.0
+
+train:
+  init_from: v3_rollout12/best.pt

@@ -1,0 +1,10 @@
+# v2 improvements on the 41-channel (7-level) data.
+inherit: v2.yaml
+run_name: v2_l7
+
+data:
+  pressure_vars: [z, t, q, u, v]
+  pressure_levels: [1000, 925, 850, 700, 500, 300, 200]
+
+train:
+  channel_weights: {t2m: 2.0, u10: 2.0, v10: 2.0}

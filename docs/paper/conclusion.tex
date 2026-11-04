@@ -1,0 +1,17 @@
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+In this paper, we introduced \textbf{WeatherForecast-SEA}, the first dedicated regional GraphCast-style Graph Neural Network for weather forecasting over Southeast Asia at $0.25^\circ$ resolution. By fusing ECMWF ERA5 reanalysis fields with high-resolution NASA GPM MERGIR satellite infrared imagery, the model establishes a dual-stream observational framework capable of resolving both large-scale synoptic flows and localized convective signatures. 
+
+Crucially, through pragmatic systems-level engineering optimizations—including a one-time float16 memory-mapped array pre-decoding pipeline, vectorized sparse message passing, and automatic mixed precision—we demonstrated that a 538K-parameter regional GNN can be trained end-to-end on accessible consumer hardware (Kaggle dual GPUs) in approximately 6 hours without memory crashes. Rigorous multi-start 72-hour autoregressive rollouts on the held-out test year (2026) confirmed that WeatherForecast-SEA surpasses classical persistence and climatology baselines by 37\% on average, maintains useful skill ($\text{ACC} > 0.6$) up to +72 hours across major synoptic fields, and out-sustains convolutional U-Net architectures over multi-day horizons.
+
+\subsection{Research Gaps and Roadmap for Operational Systems}
+Our diagnostic evaluations highlight four critical frontiers for immediate future research:
+\begin{enumerate}
+    \item \textbf{Hierarchical Multiscale Mesh Topology:} Replacing the single $2^\circ$ latent mesh with a 3-tier hierarchy ($1^\circ, 2^\circ, 4^\circ$) to bridge the gap with CNNs at short lead times ($\le 12\text{ h}$) while retaining non-local receptive fields.
+    \item \textbf{Physics-Informed Solar Forcing:} Supplying explicit astronomical top-of-atmosphere solar insolation and diurnal harmonic phase encodings to eliminate diurnal zigzag errors over terrestrial domains.
+    \item \textbf{High-Resolution Orography Integration:} Incorporating fine-resolution digital elevation models (e.g., GEBCO 30-arcsecond DEM) to correct the severe mountainous cold bias observed across Indochina.
+    \item \textbf{Autoregressive Fine-Tuning and Spectral Regularization:} Transitioning from single-step training to multi-step rollouts ($+6\text{h} \to +24\text{h}$) with Fourier frequency conservation loss to prevent spectral smoothing and retain small-scale storm dynamics.
+\end{enumerate}
+
+WeatherForecast-SEA demonstrates that cutting-edge data-driven weather forecasting can be democratized for vulnerable regions worldwide, establishing a reproducible, scalable foundation for operational AI weather services in Southeast Asia.

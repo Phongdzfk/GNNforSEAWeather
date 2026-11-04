@@ -1,0 +1,6 @@
+# Scaling run S1: v2 with a wider mesh (≈5M params). Grid width stays 128, so cost barely changes.
+inherit: v2.yaml
+run_name: v2_wide
+
+model:
+  mesh_hidden: 256

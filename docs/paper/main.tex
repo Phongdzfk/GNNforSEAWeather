@@ -1,0 +1,64 @@
+\documentclass[10pt,journal,compsoc]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{subcaption}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{cite}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=teal
+}
+
+\begin{document}
+
+\title{WeatherForecast-SEA: Accessible Regional Weather Forecasting for Southeast Asia via Graph Neural Networks with Multi-Source Satellite-Reanalysis Fusion}
+
+\author{Dang~Tuan~Phong,
+        Tran~Minh~Hieu,
+        and~Nguyen~Xuan~Duc% <-this % stops a space
+\IEEEcompsocitemizethanks{
+\IEEEcompsocthanksitem D. T. Phong and T. M. Hieu are with the Faculty of Artificial Intelligence, Posts and Telecommunications Institute of Technology (PTIT), Hanoi, Vietnam.\protect\\
+E-mail: \{phongdt, hieutm\}@ptit.edu.vn
+\IEEEcompsocthanksitem N. X. Duc is with the Faculty of Artificial Intelligence, Posts and Telecommunications Institute of Technology (PTIT), Hanoi, Vietnam.\protect\\
+E-mail: ducnx@ptit.edu.vn
+}}
+
+\markboth{IEEE Transactions on Geoscience and Remote Sensing / AI Weather Modeling, 2026}%
+{Phong \MakeLowercase{\textit{et al.}}: WeatherForecast-SEA: Regional Weather Forecasting for Southeast Asia}
+
+\IEEEtitleabstractindextext{%
+\begin{abstract}
+Data-driven medium-range weather forecasting models such as GraphCast and Pangu-Weather have demonstrated accuracy rivaling operational numerical weather prediction (NWP) systems at orders of magnitude lower inference computational cost. However, these models are global in scale and trained on proprietary supercomputing clusters (tens of TPU/GPU clusters), rendering regional adaptation and fine-tuning inaccessible to resource-constrained research institutions and regional meteorological services. Furthermore, tropical regions such as Southeast Asia present distinctive meteorological challenges characterized by complex maritime-terrestrial topography, localized deep convection, and frequent typhoon hazards. In this paper, we present \textbf{WeatherForecast-SEA}, a regional, multiscale Graph Neural Network (GNN) tailored for Southeast Asia ($11^\circ\text{S} - 28.5^\circ\text{N}$, $92^\circ\text{E} - 142^\circ\text{E}$) operating at $0.25^\circ$ horizontal resolution. WeatherForecast-SEA introduces a dual-stream architecture fusing ECMWF ERA5 reanalysis fields with high-resolution NASA GPM MERGIR infrared satellite brightness temperature observations. To operate within strict consumer-grade hardware budgets (single/dual GPU on free-tier platforms), we develop an optimized end-to-end training pipeline combining one-time float16 memory-mapped array pre-decoding, vectorized sparse message passing, and automatic mixed precision. Through comprehensive 72-hour autoregressive rollouts evaluated on a held-out test year, WeatherForecast-SEA outperforms the persistence baseline by 37\% across synoptic variables, retains useful skill ($\text{ACC} > 0.6$) up to +72 hours for 2m temperature, sea-level pressure, and 500 hPa geopotential, and offers an honest comparison against a strong U-Net convolutional baseline. We provide extensive diagnostic analyses encompassing regional error breakdown, diurnal cycle aliasing, and spectral blur, identifying concrete research gaps and architectural directions for operational regional AI forecasting.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Data-driven weather forecasting, Graph Neural Networks, Southeast Asia meteorology, ERA5 reanalysis, NASA GPM satellite imagery, resource-constrained machine learning.
+\end{IEEEkeywords}}
+
+\maketitle
+\IEEEdisplaynontitleabstractindextext
+\IEEEpeerreviewmaketitle
+
+\input{intro}
+\input{related}
+\input{method}
+\input{exp}
+\input{conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

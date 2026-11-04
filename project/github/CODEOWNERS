@@ -1,0 +1,12 @@
+# Thay <phong-gh>, <hieu-gh>, <tung-gh> bằng username GitHub thật rồi bỏ dấu # ở các dòng dưới.
+# GitHub sẽ tự yêu cầu người sở hữu review PR chạm vào thư mục của họ.
+#
+# /src/wfsea/data/          @<phong-gh>
+# /src/wfsea/constants.py   @<phong-gh> @<hieu-gh>
+# /src/wfsea/graph/         @<hieu-gh>
+# /src/wfsea/models/        @<hieu-gh>
+# /src/wfsea/training/      @<hieu-gh>
+# /src/wfsea/inference/     @<hieu-gh> @<tung-gh>
+# /src/wfsea/evaluation/    @<tung-gh>
+# /project/evidence_ledger.csv @<tung-gh>
+# /kaggle/                  @<phong-gh> @<hieu-gh> @<tung-gh>

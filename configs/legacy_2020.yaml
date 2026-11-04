@@ -1,0 +1,9 @@
+# Reproduce the course-project setup on the EXISTING Kaggle Zarr outputs of nb3
+# (train 2020–2024, val 2025, test 2026, stats from stat-compute, bilinear Tb).
+# Use this only to re-check the old numbers; new experiments use base.yaml (raw, 2015–2024).
+inherit: base.yaml
+run_name: legacy_2020
+
+data:
+  train_years: [2020, 2021, 2022, 2023, 2024]
+  zarr_layout: legacy

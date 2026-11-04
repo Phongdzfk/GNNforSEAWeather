@@ -1,0 +1,10 @@
+claim_id,claim,appears_in,claimed_value,status,verified_value,artifact,run_name,git_commit,checked_by,notes
+C01,Model parameter count,docs/architecture.md; paper method.tex,538382,verified (code),538382,tests/test_model.py::test_legacy_param_count_is_538382,,,,legacy config: n_in=38 hidden=128 layers=4 edge_dim=1
+C02,Graph edge counts G2M / M2M,docs/architecture.md,127836 / 3734,verified (code),127836 / 3734,tests/test_model.py::test_legacy_graph_matches_documented_numbers,,,,mesh is regular 2deg lat-lon (not icosahedral)
+C03,Mean RMSE reduction vs baselines over 14 variables,docs/README.md; paper,37%,pending,,eval_persist/summary_rmse.csv,,,,old notebooks used test-set climatology and oracle Tb
+C04,Training time 11h -> 6h with fp16 memmap,docs/data-pipeline.md,11h -> 6h,pending,,<run>/history.json epoch_sec,,,,need one run with zarr loader and one with memmap on same hardware
+C05,ACC at +72h above 0.6 for t2m/msl/z500,docs/evaluation-results.md,0.82 / 0.65 / 0.67,pending,,eval_persist/summary_acc.csv,,,,ACC must use train climatology
+C06,Number of 2026 test samples,docs,587,pending,,data_manifest.json splits.test,,,,expected ~2026-01-01..2026-05-27 because MERGIR download ended 2026-05-30
+C07,Zero OOM during training,docs/data-pipeline.md,0 OOM,pending,,Kaggle run logs,,,,
+C08,Inference latency per 6h step on T4,docs/architecture.md,~0.08 s,pending,,benchmark script (week 7),,,,
+C09,Training VRAM at batch 4,docs/architecture.md,~6.2 GB,pending,,<run>/history.json max_vram_gb,,,,

@@ -1,0 +1,7 @@
+# Scaling run S2: wider and deeper mesh (≈14M params).
+inherit: v2.yaml
+run_name: v2_wider
+
+model:
+  mesh_hidden: 384
+  n_layers: 16

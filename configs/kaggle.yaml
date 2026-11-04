@@ -1,0 +1,9 @@
+# Kaggle T4 ×2 profile. Data is auto-discovered under /kaggle/input.
+inherit: base.yaml
+
+train:
+  batch_size: 4
+  num_workers: 4
+  amp: true
+  multi_gpu: true
+  max_hours: 11.3           # Kaggle GPU sessions end at 12 h

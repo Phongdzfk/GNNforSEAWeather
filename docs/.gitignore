@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Microsoft Office temporary lock files
+~$*.doc*
+~$*.ppt*
+~$*.xls*
+
+# Temporary & Build outputs
+*.tmp
+*.bak
+.temp/

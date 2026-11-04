@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GraphCast-SEA — Project Presentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f4f1e9; --paper2:#eceadf; --ink:#1b2330; --mut:#5d6b7a;
+  --line:#c9c4b4; --acc:#0e8f86; --acc2:#d4842a; --hi:#0e8f8615;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --sans:"IBM Plex Sans",system-ui,sans-serif;
+  --disp:"Fraunces",Georgia,serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--ink);font-family:var(--sans);color:var(--ink);overflow:hidden}
+
+/* graticule motif */
+.grat{position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:54px 54px;mask-image:radial-gradient(120% 120% at 80% 0%,#000 30%,transparent 75%)}
+
+.deck{position:fixed;inset:0}
+.slide{position:absolute;inset:0;display:none;flex-direction:column;
+  padding:6vh 7vw;background:var(--paper);overflow:hidden}
+.slide.active{display:flex;animation:fade .45s ease}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.kicker{font-family:var(--mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--acc);margin-bottom:18px}
+.title{font-family:var(--disp);font-weight:600;line-height:1.04;font-size:clamp(30px,5vw,58px);max-width:18ch;letter-spacing:-.01em}
+.lead{color:var(--mut);font-size:clamp(15px,1.5vw,20px);max-width:62ch;margin-top:14px;line-height:1.5}
+.body{margin-top:34px;flex:1;min-height:0}
+
+ul.pts{list-style:none;display:flex;flex-direction:column;gap:14px}
+ul.pts li{position:relative;padding-left:26px;font-size:clamp(15px,1.45vw,19px);line-height:1.5;color:#2a3543;max-width:64ch}
+ul.pts li::before{content:"";position:absolute;left:0;top:.62em;width:11px;height:11px;background:var(--acc);border-radius:2px;transform:rotate(45deg)}
+ul.pts li b{color:var(--ink);font-weight:600}
+ul.pts li small{color:var(--mut)}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start;height:100%}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+
+.ph{border:2px dashed var(--line);border-radius:14px;background:
+   repeating-linear-gradient(45deg,#0000 0 12px,#00000005 12px 24px),var(--paper2);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  color:var(--mut);text-align:center;padding:26px;min-height:200px;height:100%}
+.ph .ico{font-size:30px;color:var(--acc)}
+.ph .cap{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;max-width:34ch;line-height:1.5}
+.ph .tag{font-family:var(--mono);font-size:11px;color:var(--acc2);letter-spacing:.12em;text-transform:uppercase}
+
+.card{border:1px solid var(--line);border-radius:12px;padding:18px 20px;background:#fff8;backdrop-filter:blur(2px)}
+.card h3{font-family:var(--disp);font-weight:600;font-size:20px;margin-bottom:8px}
+.card p{color:var(--mut);font-size:18px;line-height:1.5}
+.card .n{font-family:var(--mono);color:var(--acc);font-size:13px}
+
+.stats{display:flex;gap:42px;flex-wrap:wrap;margin-top:8px}
+.stat .v{font-family:var(--disp);font-weight:600;font-size:clamp(26px,3.4vw,42px);color:var(--acc)}
+.stat .l{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--mut);text-transform:uppercase}
+
+table.t{border-collapse:collapse;font-size:14px;width:100%}
+table.t th,table.t td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left}
+table.t th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+table.t td{color:#2a3543}
+table.t td.num{font-family:var(--mono);text-align:right}
+table.t th:not(:first-child){text-align:right}
+
+.tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.chip{font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:99px;padding:4px 11px;color:var(--mut)}
+.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+
+/* title slide */
+.cover{justify-content:center}
+.cover .eyebrow{font-family:var(--mono);letter-spacing:.28em;text-transform:uppercase;color:var(--acc);font-size:14px}
+.cover h1{font-family:var(--disp);font-weight:800;font-size:clamp(36px,6.6vw,82px);line-height:1.02;letter-spacing:-.02em;margin:18px 0;max-width:20ch}
+.cover .by{margin-top:26px;display:flex;gap:36px;flex-wrap:wrap;color:var(--mut);font-size:15px}
+.cover .by b{display:block;color:var(--ink);font-weight:600;font-family:var(--mono);font-size:13px;letter-spacing:.06em}
+.rule{height:3px;width:90px;background:var(--acc2);margin:4px 0 2px}
+
+/* chrome */
+.bar{position:fixed;left:0;top:0;height:3px;background:var(--acc);z-index:9;transition:width .3s}
+.count{position:fixed;right:22px;bottom:18px;font-family:var(--mono);font-size:12px;color:var(--mut);z-index:9;letter-spacing:.1em}
+.nav{position:fixed;right:22px;top:18px;display:flex;gap:8px;z-index:9}
+.nav button{font-family:var(--mono);border:1px solid var(--line);background:#fff;color:var(--ink);
+  width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:15px}
+.nav button:hover{border-color:var(--acc);color:var(--acc)}
+.foot{position:fixed;left:7vw;bottom:18px;font-family:var(--mono);font-size:11px;color:var(--mut);letter-spacing:.08em;z-index:9}
+@media(max-width:720px){.two,.three{grid-template-columns:1fr;gap:20px}.slide{padding:5vh 7vw 9vh}}
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="nav"><button id="prev">←</button><button id="next">→</button></div>
+<div class="count" id="count">01 / 20</div>
+<div class="foot">GraphCast-SEA · Regional Weather Forecasting</div>
+
+<div class="deck" id="deck">
+
+<!-- 1 COVER -->
+<section class="slide cover active">
+  <div class="grat"></div>
+  <div class="eyebrow">DeepLearning Project</div>
+  <h1>Data-Driven Regional Weather Forecasting for Southeast Asia</h1>
+  <div class="rule"></div>
+  <p class="lead">A GraphCast-style Graph Neural Network fusing ERA5 reanalysis with satellite observations — trained end-to-end on accessible (Kaggle) hardware.</p>
+  <div class="by">
+    <div><b>AUTHOR</b>Dang Tuan Phong</div>
+    <div><b>CO-AUTHOR</b>Tran Minh Hieu</div>
+    <div><b>LECTURER</b>Nguyen Xuan Duc</div>
+    <div><b>INSTITUTION</b>PTIT</div>
+    <div><b>DATE</b>2026</div>
+  </div>
+</section>
+
+<!-- 2 MOTIVATION -->
+<section class="slide">
+  <div class="kicker">01 · Motivation</div>
+  <h2 class="title">Why machine-learning weather forecasting?</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li><b>Numerical weather prediction (NWP)</b> is accurate but compute-heavy — hours on supercomputers per forecast.</li>
+      <li><b>Data-driven models</b> (GraphCast, Pangu-Weather, FourCastNet) now match NWP skill at a fraction of the cost — <b>seconds on a single GPU</b>.</li>
+      <li><b>Southeast Asia</b> is hazard-prone (typhoons, monsoon flooding) and densely populated, yet under-served by regional ML forecasting.</li>
+      <li>Goal: bring this capability to the region under <b>realistic resource constraints</b>.</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\southeast-asia-region-map-of-countries-in-southeastern-asia-vector-illustration-2BYTAAB.jpg" style="width:100%;border-radius:14px">
+  </div>
+</section>
+
+<!-- 3 OBJECTIVES -->
+<section class="slide">
+  <div class="kicker">02 · Objectives</div>
+  <h2 class="title">Project objectives</h2>
+  <div class="body">
+    <ul class="pts">
+      <li>Build a <b>GraphCast-style GNN</b> for the Southeast Asia domain at 0.25° resolution.</li>
+      <li>Train the full pipeline <b>end-to-end on modest hardware</b> (Kaggle, single/dual GPU).</li>
+      <li><b>Fuse reanalysis (ERA5)</b> with <b>satellite observations</b> (NASA brightness temperature).</li>
+      <li>Evaluate rigorously against standard baselines and <b>analyse which components matter</b> (ablations).</li>
+      <li>Deliver a <b>reproducible, scalable pipeline</b> and a good insight into the regional weather forecasting capabilities.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 4 BACKGROUND -->
+<section class="slide">
+  <div class="kicker">03 · Background</div>
+  <h2 class="title">Related work</h2>
+  <div class="body three">
+    <div class="card"><div class="n">Physics</div><h3>NWP / IFS</h3><p>Equation-based simulation; ECMWF IFS HRES is the operational gold standard. High fidelity, high cost.</p></div>
+    <div class="card"><div class="n">GNN</div><h3>GraphCast</h3><p>DeepMind. Encode–process–decode graph network on an icosahedral mesh. Matches IFS at far lower inference cost.</p></div>
+    <div class="card"><div class="n">Transformer / FNO</div><h3>Pangu · FourCastNet</h3><p>3D transformer and Fourier neural operator approaches — alternative architectures in the same family.</p></div>
+    <div class="card"><div class="n">This work</div><h3>Regional adaptation</h3><p>Encode–process–decode applied to a single region, with satellite fusion and resource-constrained training.</p></div>
+    <div class="card"><div class="n">This work</div><h3>Mixed Data</h3><p>Combining ERA5 reanalysis with NASA satellite observations for improved forecasting.</p></div>
+</section>
+
+<!-- 5 DATA -->
+<section class="slide">
+  <div class="kicker">04 · Data</div>
+  <h2 class="title">Study region &amp; data sources</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li><b>Domain:</b> 11°S–28.5°N, 92°E–142°E — ~159×201 grid at <b>0.25°</b>.</li>
+      <li><b>ERA5 reanalysis</b>, 6-hourly. <small>Train 2020–2024 · Val 2025 · Test 2026.</small></li>
+      <li><b>Surface:</b> 2 m temperature &amp; dewpoint, MSLP, 10 m u/v wind, total precipitation.</li>
+      <li><b>Pressure levels (500 / 850 hPa):</b> geopotential, specific humidity, u/v wind.</li>
+      <li><b>Static:</b> land–sea mask, surface geopotential. <b>Satellite:</b> NASA brightness temperature (Tb).</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\nasa.png" style="width:100%;border-radius:14px">
+  </div>
+</section>
+
+<!-- 6 PIPELINE -->
+<section class="slide">
+  <div class="kicker">05 · Pipeline</div>
+  <h2 class="title">Data &amp; processing pipeline</h2>
+  <div class="body">
+    <div class="tags" style="margin-bottom:22px">
+      <span class="chip">Module1 · ERA5 download</span><span class="chip">Module2 · NASA satellite</span>
+      <span class="chip">Module3 · preprocess → Zarr + normalization</span>
+      <span class="chip on">Module4 · train</span><span class="chip">Module5 · evaluate / demo</span>
+    </div>
+    <ul class="pts">
+      <li><b>Preprocessing:</b> regrid, z-score normalization (statistics from <b>train years only</b>), build <b>residual labels</b>, write per-year <b>Zarr</b>.</li>
+      <li><b>float16 + streaming Zarr</b> to fit Kaggle storage limits.</li>
+      <li><b>DataLoader:</b> on-the-fly Zarr reading, random cropping, batch assembly.</li>
+      <li><b>One-time memmap pre-decode</b> at train time removes repeated decompression (see Engineering slide).</li>
+      <li><b>Training:</b> PyTorch Lightning, mixed precision, multi-GPU DataParallel.</li>
+      <li><b>Evaluation:</b> multi-start autoregressive rollout on the held-out test year; metrics include RMSE, ACC, regional error, power spectrum.</li>
+    </ul>
+    
+  </div>
+</section>
+
+<!-- 7 FORMULATION -->
+<section class="slide">
+  <div class="kicker">06 · Formulation</div>
+  <h2 class="title">Problem formulation</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li><b>Inputs:</b> atmospheric state at <b>t and t−1</b>, plus satellite Tb and static fields.</li>
+      <li><b>Residual target:</b> predict ΔX = X(t+6h) − X(t); output state = X(t) + ΔX.</li>
+      <li>Residual learning makes short-range prediction easier and more stable.</li>
+      <li><b>Autoregressive rollout:</b> feed predictions back to forecast +6h … +72h.</li>
+      <li><b>Caveat:</b> error compounds with lead time; evaluation focuses on the first 48h where skill is expected.</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\forecast_map_t2m_v2.png" style="width:115%;height:500px;border-radius:15px">
+  </div>
+  </div>
+</section>
+
+<!-- 8 ARCHITECTURE -->
+<section class="slide">
+  <style>
+    .arch-row{display:grid;grid-template-columns:1fr 46px 1fr 46px 1fr;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:30px}
+    .arch-sc{padding:22px 24px}
+    .arch-tag{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc2);margin-bottom:8px}
+    .arch-sc h3{font-family:var(--disp);font-weight:600;font-size:24px;margin-bottom:10px}
+    .arch-sc p{color:var(--mut);font-size:14.5px;line-height:1.5}
+    .arch-sc p b{color:var(--ink)}
+    .arch-det{font-family:var(--mono);font-size:12.5px;color:var(--mut);margin-top:16px}
+    .arch-arr{display:flex;align-items:center;justify-content:center;color:var(--acc2);font-size:18px;border-left:1px solid var(--line)}
+    .arch-stats{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);padding-top:24px}
+    .arch-stat{padding-right:24px}
+    .arch-stat .lab{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--acc2)}
+    .arch-stat .big{font-family:var(--disp);font-weight:600;font-size:clamp(34px,4.2vw,54px);line-height:1.1;margin:6px 0;color:var(--ink)}
+    .arch-stat .cap{color:var(--mut);font-size:13px}
+  </style>
+  <div class="kicker">07 · Model</div>
+  <h2 class="title" style="max-width:none">Encoder <span style="color:var(--acc2);font-style:italic">· Processor ·</span> Decoder</h2>
+  <div class="body">
+    <div class="arch-row">
+      <div class="arch-sc">
+        <div class="arch-tag">Stage 01</div>
+        <h3>Encoder</h3>
+        <p>An MLP compresses grid-node features into a hidden space. <b>Grid → Mesh</b> edges are built with <b>KNN (k = 4)</b> and normalized distances.</p>
+        <div class="arch-det">N_in = 38 / Hidden = 128</div>
+      </div>
+      <div class="arch-arr">▶</div>
+      <div class="arch-sc">
+        <div class="arch-tag">Stage 02</div>
+        <h3>Processor</h3>
+        <p>4-layer <b>GNN message passing</b> on the 2° mesh. Each layer: src + dst + edge → MLP → mean aggregate → residual update. This is where the model learns latent physical patterns.</p>
+        <div class="arch-det">4 layers / 500 mesh nodes</div>
+      </div>
+      <div class="arch-arr">▶</div>
+      <div class="arch-sc">
+        <div class="arch-tag">Stage 03</div>
+        <h3>Decoder</h3>
+        <p>Mesh → Grid aggregation, then a linear projection to 14 forecast channels. The output is added back to the input via a <b>residual connection</b>.</p>
+        <div class="arch-det">N_out = 14 (dynamic vars)</div>
+      </div>
+    </div>
+    <div class="arch-stats">
+      <div class="arch-stat"><div class="lab">Total params</div><div class="big">538 K</div><div class="cap">Small — runs on Kaggle free</div></div>
+      <div class="arch-stat"><div class="lab">Mesh nodes</div><div class="big">500</div><div class="cap">Regular 2° × 2° grid</div></div>
+      <div class="arch-stat"><div class="lab">G→M edges</div><div class="big">127 836</div><div class="cap">KNN k = 4</div></div>
+      <div class="arch-stat"><div class="lab">M→M edges</div><div class="big">3 734</div><div class="cap">8-connectivity, local</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 9 MESH -->
+<section class="slide">
+  <div class="kicker">08 · Graph</div>
+  <h2 class="title">Mesh &amp; graph construction</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li><b>Fine grid:</b> 0.25° (~32k nodes) carries the high-resolution fields.</li>
+      <li><b>Coarse mesh:</b> 2° (hundreds of nodes) carries long-range information.</li>
+      <li>Three edge sets: <b>grid→mesh</b> (encode), <b>mesh→mesh</b> (process), <b>mesh→grid</b> (decode).</li>
+      <li>Nodes carry latitude/longitude positional features; nearest-neighbour connectivity.</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\Encode-Process-Decode-architecture-with-message-passing-GNN-The-Encoder-transforms-the.jpg" style="width:100%;border-radius:15px">
+  </div>
+</section>
+
+<!-- 10 TRAINING -->
+<section class="slide">
+  <div class="kicker">09 · Training</div>
+  <h2 class="title">Training setup &amp; loss</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li><b>Loss:</b> latitude-weighted RMSE (area weighting by cos φ).</li>
+      <li><b>Optimizer:</b> AdamW · cosine LR schedule · gradient clipping · early stopping.</li>
+      <li><b>Mixed precision (AMP)</b>; residual prediction with 2-step input.</li>
+      <li>Trained on train years; model selected on the validation year; final scores on the held-out test year.</li>
+    </ul>
+    <div class="card">
+      <h3>Configuration</h3>
+      <table class="t">
+        <tr><th>Item</th><th>Value</th></tr>
+        <tr><td>Latent width</td><td class="num">128</td></tr>
+        <tr><td>Processor layers</td><td class="num">4</td></tr>
+        <tr><td>Mesh resolution</td><td class="num">2°</td></tr>
+        <tr><td>Forecast step</td><td class="num">6 h</td></tr>
+        <tr><td>Rollout horizon</td><td class="num">72 h</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 11 ENGINEERING -->
+<section class="slide">
+  <div class="kicker">10 · Engineering</div>
+  <h2 class="title">Training within Kaggle limits</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li><b>Constraints:</b> tens of GB of data, 30 GB GPU, limited RAM &amp; session time.</li>
+      <li><b>Bottleneck found:</b> Zarr chunking forced ~100× redundant decompression every epoch.</li>
+      <li><b>Fixes:</b> one-time <b>float16 memmap</b> pre-decode · <b>vectorized (batched)</b> message passing · <b>AMP</b> · <b>multi-GPU DataParallel</b>.</li>
+      <li><b>Result:</b> training time reduced from ~11h to ~6h per run, with zero OOMs and good scaling across 2 GPUs.</li>
+    </ul>
+    <div>
+      <div class="stats">
+        <div class="stat"><div class="v">~11h → ~6h</div><div class="l">Training time</div></div>
+        <div class="stat"><div class="v">0</div><div class="l">OOM after fix</div></div>
+        <div class="stat"><div class="v">2×</div><div class="l">GPU scaling</div></div>
+      </div>
+      <img src="C:\Users\24hph\DL_MidTerm\time.png" style="width:100%;border-radius:14px">
+  </div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 EVAL METHOD -->
+<section class="slide">
+  <div class="kicker">11 · Evaluation</div>
+  <h2 class="title">Evaluation methodology</h2>
+  <div class="body">
+    <ul class="pts">
+      <li><b>Protocol:</b> multi-start autoregressive rollout — 30 start times × 12 steps (+72h) on the <b>held-out test year</b>.</li>
+      <li><b>Baselines:</b> persistence · climatology · <b>U-Net</b> (best-performing CNN for weather forecasting).</li>
+      <li><b>Metrics:</b> latitude-weighted RMSE · <b>ACC</b> (Anomaly Correlation Coefficient) · regional RMSE (land / sea / mountain) · <b>power spectrum</b> (blurring check).</li>
+    </ul>
+    <div class="three" style="margin-top:24px">
+      <div class="card"><h3>RMSE</h3><p>Magnitude of error vs ground truth, per lead time.</p></div>
+      <div class="card"><h3>ACC</h3><p>Pattern skill of anomalies; ≥ 0.6 = useful skill.</p></div>
+      <div class="card"><h3>Spectrum</h3><p>Detects over-smoothing of small-scale structure.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 13 RESULTS RMSE -->
+<section class="slide">
+  <div class="kicker">12 · Results</div>
+  <h2 class="title">Skill vs lead time</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li>The model <b>beats persistence by a large margin</b> (+37%).</li>
+      <li>Error grows smoothly with lead time, as expected.</li>
+      <li><b>Smooth, large-scale fields</b> (temperature, geopotential, MSLP).</li>
+      <li><b>Small-scale, noisy fields</b> (wind, precipitation) are harder to predict.</li>
+      <li>Overall, the model captures the main synoptic evolution well out to +48h, with room for improvement at longer horizons and smaller scales.</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\rmse_lead_time_v2.png" style="width:110%;height:420px;border-radius:20px">
+  </div>
+</section>
+
+<!-- 14 RESULTS ACC -->
+<section class="slide">
+  <div class="kicker">13 · Results</div>
+  <h2 class="title">Anomaly Correlation Coefficient</h2>
+  <div class="body two">
+    <div>
+      <ul class="pts">
+        <li><b>ACC &gt; 0.6</b> (useful skill) out to <b>+48h</b> for most variables.</li>
+        <li>t2m, z@500, MSLP remain skilful to <b>+72h</b>.</li>
+        <li>Hardest variables: <b>mid-level meridional wind (v@500)</b> and <b>precipitation</b> — physically expected.</li>
+      </ul>
+      <table class="t" style="margin-top:18px">
+        <tr><th>Var</th><th>+24h</th><th>+72h</th></tr>
+        <tr><td>t2m</td><td class="num">0.93</td><td class="num">0.82</td></tr>
+        <tr><td>MSLP</td><td class="num">0.92</td><td class="num">0.65</td></tr>
+        <tr><td>z@500</td><td class="num">0.90</td><td class="num">0.67</td></tr>
+        <tr><td>tp (precip)</td><td class="num">0.36</td><td class="num">0.18</td></tr>
+      </table>
+    </div>
+    <img src="C:\Users\24hph\DL_MidTerm\acc_lead_time.png" style="width:115%;height:500px;border-radius:15px">
+  </div>
+</section>
+
+<!-- 15 RESULTS REGIONAL/SPECTRAL -->
+<section class="slide">
+  <div class="kicker">14 · Results</div>
+  <h2 class="title">Regional error &amp; spectral analysis</h2>
+  <div class="body two">
+    <div>
+      <ul class="pts">
+        <li>Regional RMSE pattern: <b>sea &lt; plain &lt; land &lt; mountain</b> — physically consistent.</li>
+        <li>Complex terrain and the diurnal cycle drive the largest land/mountain errors.</li>
+        <li><b>Spectral analysis</b> checks whether the model over-smooths small scales.</li>
+      </ul>
+      <img src="C:\Users\24hph\DL_MidTerm\regional.png" style="width:80%;border-radius:14px;margin-top:18px">
+    </div>
+    <img src="C:\Users\24hph\DL_MidTerm\spectrum_t2m.png" style="width:100%;border-radius:14px;margin-top:18px">
+  </div>
+</section>
+
+<!-- 16 BASELINE COMPARISON -->
+<section class="slide">
+  <div class="kicker">15 · Comparison</div>
+  <h2 class="title">Baseline comparison</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li>GraphCast GNN vs <b>U-Net</b> vs climatology vs persistence — all on the test set, identical rollout.</li>
+      <li><b>Honest finding:</b> on a small regional domain at short lead, a U-Net baseline is competitive — CNNs have a strong inductive bias on regular grids.</li>
+      <li>The GNN's advantage is expected to grow with <b>multi-scale meshes and longer horizons</b>.</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\compare_gnn_unet.png" style="width:80%;scale:1.8;border-radius:10px;border:1px solid var(--line);  margin-top:300px; margin-right:600px">
+  </div>
+</section>
+<section class="slide">
+  <div class="kicker">15 · Comparison</div>
+  <h2 class="title">Baseline comparison</h2>
+  <div class="body two">
+    <ul class="pts">
+      <li>Variables compared in the same framework.</li>
+    </ul>
+    <img src="C:\Users\24hph\DL_MidTerm\table.png" style="width:100%;border-radius:15px;margin-top:18px">
+  </div>
+</section>
+
+<!-- 17 CASE STUDY -->
+<section class="slide">
+  <div class="kicker">16 · Training Curve</div>
+  <h2 class="title">GNN model training and val loss</h2>
+    <img src="C:\Users\24hph\DL_MidTerm\training_curve_v2.png" style="width:100%;border-radius:15px;margin-top:18px">
+</section>
+
+<!-- 19 LIMITATIONS / FUTURE -->
+<section class="slide">
+  <div class="kicker">17 · Outlook</div>
+  <h2 class="title">Limitations &amp; future work</h2>
+  <div class="body two">
+    <div class="card">
+      <h3>Limitations</h3>
+      <p style="margin-top:10px">• Learns ERA5-quality fields — inherits its 0.25° ceiling.<br>
+      • Requires an initial analysis state to start.<br>
+      • Regional, single-scale, 72h — a research proof-of-concept, not an operational system.</p>
+    </div>
+    <div class="card">
+      <h3>Future work (roadmap)</h3>
+      <p style="margin-top:10px">• Data: 10-year archive, 8 pressure levels, SST/TCWV, real DEM (GEBCO/ETOPO).<br>
+      • Architecture: multi-scale icosahedral mesh, 10–30M parameters.<br>
+      • Science: full ablations, multi-step fine-tuning, ACC/spectral/regional suite.<br>
+      • Deployment: ONNX export, FastAPI + Streamlit dashboard.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 20 CONCLUSION -->
+<section class="slide cover">
+  <div class="grat"></div>
+  <div class="eyebrow">Conclusion</div>
+  <h1>A regional GraphCast, built on accessible hardware.</h1>
+  <div class="rule"></div>
+  <ul class="pts" style="margin-top:22px;max-width:70ch">
+    <li>Trained a GraphCast-style GNN for Southeast Asia end-to-end on Kaggle.</li>
+    <li>Beats classical baselines; an honest, informative comparison against a U-Net.</li>
+    <li>Delivers a reusable pipeline, evaluation suite, and interactive demo.</li>
+  </ul>
+  <div class="by"><div><b>THANK YOU</b>Questions &amp; discussion</div></div>
+</section>
+
+</div>
+
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+let i=0; const total=slides.length;
+const bar=document.getElementById('bar'),count=document.getElementById('count');
+function show(n){
+  i=Math.max(0,Math.min(total-1,n));
+  slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+  bar.style.width=((i+1)/total*100)+'%';
+  count.textContent=String(i+1).padStart(2,'0')+' / '+String(total).padStart(2,'0');
+}
+function next(){show(i+1)} function prev(){show(i-1)}
+document.getElementById('next').onclick=next;
+document.getElementById('prev').onclick=prev;
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next()}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev()}
+  else if(e.key==='Home'){show(0)} else if(e.key==='End'){show(total-1)}
+});
+// click right/left third of screen to navigate (ignore clicks on buttons)
+document.getElementById('deck').addEventListener('click',e=>{
+  if(e.target.closest('button'))return;
+  (e.clientX>window.innerWidth*0.5)?next():prev();
+});
+show(0);
+</script>
+</body>
+</html>

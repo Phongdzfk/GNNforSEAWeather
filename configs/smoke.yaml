@@ -1,0 +1,14 @@
+# Tiny end-to-end run (CPU-friendly) used by tests and the first Kaggle check.
+inherit: base.yaml
+run_name: smoke
+
+train:
+  epochs: 1
+  batch_size: 2
+  num_workers: 0
+  amp: false
+  max_steps_per_epoch: 5
+
+eval:
+  n_starts: 3
+  n_steps: 4

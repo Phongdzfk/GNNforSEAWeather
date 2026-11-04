@@ -1,0 +1,14 @@
+# 7 pressure levels × 5 variables (adds temperature t) — use once the new pressure-level
+# download is attached. 6 surface + 35 pressure = 41 dynamic channels.
+# Everything that depends on channels (stats, cache, model width, eval) follows automatically,
+# but `wfsea stats` and the caches (00a/00b/00c) must be rebuilt with this config.
+# Combine with a model config:  wfsea train --config configs/v2_l7.yaml
+inherit: kaggle.yaml
+
+data:
+  pressure_vars: [z, t, q, u, v]
+  pressure_levels: [1000, 925, 850, 700, 500, 300, 200]
+
+train:
+  # the thesis targets near-surface temperature and wind → weight them up in the loss
+  channel_weights: {t2m: 2.0, u10: 2.0, v10: 2.0}

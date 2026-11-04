@@ -1,0 +1,12 @@
+# v3 stage 1 — fine-tune v2 on 4-step (24 h) autoregressive rollouts.
+inherit: v2.yaml
+run_name: v3_rollout4
+
+train:
+  init_from: v2/best.pt     # file name is searched under /kaggle/input → attach the v2 run output
+  rollout_steps: 4
+  grad_checkpoint: true
+  batch_size: 2
+  lr: 3.0e-5
+  epochs: 6
+  patience: 3

@@ -1,0 +1,17 @@
+{
+  "id": "<kaggle-username>/wfsea-01-train-graphcast",
+  "title": "wfsea 01 train graphcast",
+  "code_file": "01_train_graphcast.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "kernel_sources": [
+    "<kaggle-username>/wfsea-00a-stats",
+    "<kaggle-username>/wfsea-00b-cache-train",
+    "<kaggle-username>/wfsea-00c-cache-valtest"
+  ],
+  "competition_sources": []
+}

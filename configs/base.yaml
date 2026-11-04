@@ -1,0 +1,114 @@
+# Base configuration — reproduces the course-project baseline (GraphCast SEA v2).
+# Override per run:  wfsea train --config configs/kaggle.yaml train.lr=3e-4
+
+seed: 42
+run_name: graphcast_baseline
+
+paths:
+  # Raw downloads: folders year_<YYYY>/ with era5_pressure_*.nc, *instant.nc, *accum.nc (ERA5)
+  # and merg_*.nc4 (MERGIR). Leave null to search every Kaggle input (2015–2019 and 2020–2026
+  # may be in different notebooks/datasets — both are found).
+  era5_raw_root: null
+  nasa_raw_root: null
+  era5_exclude: []           # path substrings to ignore, e.g. [era5_data_pressure] to drop an old download
+  # Only for zarr_layout legacy / v1: where brain_<year>*.zarr live (null = auto-discover).
+  zarr_root: null
+  # Folder with era5_normalization_stats.json + nasa_normalization_stats.{json,nc}.
+  # null = <out>/stats when computing, auto-discover when reading.
+  stats_dir: null
+  out: null        # default: /kaggle/working on Kaggle, ./outputs locally
+  scratch: null    # default: /kaggle/tmp/wfsea_cache (not counted in Kaggle's 20 GB output)
+
+data:
+  # Raw ERA5 + MERGIR are available for 2015–2026 → 10 training years.
+  # (The course project used train 2020–2024; reproduce it with configs/legacy_2020.yaml.)
+  train_years: [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  val_years: [2025]
+  test_years: [2026]
+  # "raw"    = raw NetCDF → normalised on the fly → memmap (default; needs `wfsea stats` first)
+  # "legacy" = Zarr outputs of the old nb3 notebooks (brain_<y>_x/label.zarr, eye_<y>_norm.zarr;
+  #            normalised with 2020–2024 stats, years 2020–2026 only)
+  # "v1"     = Zarr written by wfsea.data.preprocess.preprocess_year
+  zarr_layout: raw
+  # Channels read from the raw files (raw layout). Default = the 14-channel baseline that the
+  # existing downloads contain. configs/levels7.yaml switches to 7 levels × (z, t, q, u, v).
+  surface_vars: [t2m, d2m, u10, v10, msl, tp]
+  pressure_vars: [z, q, u, v]
+  pressure_levels: [850, 500]
+  tp_accum_hours: 6          # hourly downloads: tp = sum of the last 6 hourly values (rain in the past 6 h)
+  cache_part_years: auto     # split the train cache into parts that fit one Kaggle output (≤ ~17 GB)
+  regrid: box_mean           # MERGIR 4 km → 0.25°: box_mean (area average) | bilinear (what nb3 did)
+  tb_file_stride: 5          # Tb stats: read every 5th MERGIR file (cycles the 4 synoptic hours)
+  # Precipitation transform applied BEFORE normalisation (raw layout only; recorded in the stats file):
+  #   log1p = log(1 + tp / 0.1 mm)  — tp is very skewed; this is decided at `wfsea stats` time.
+  tp_transform: log1p
+  memmap_block: 100          # matches the Zarr time-chunk size → each chunk decoded once
+  n_past: 2                  # X(t-1), X(t)
+
+features:
+  satellite: true            # Tb + valid-mask for t and t-1 (4 channels)
+  position: true             # sin/cos lat, sin/cos lon (4 channels)
+  static: true               # lsm, geopotential_surf (2 channels)
+  time: false                # sin/cos hour-of-day, sin/cos day-of-year (Proposal 2)
+  solar: false               # normalised TOA insolation (Proposal 2)
+
+graph:
+  # NOTE: this is a REGULAR 2° lat-lon mesh with 8-neighbour connectivity,
+  # not an icosahedral mesh. Call it that in the thesis.
+  mesh_res: 2.0
+  mesh_lat_start: -10.0      # legacy value (20 × 25 = 500 mesh nodes)
+  mesh_lat_stop: 28.5
+  mesh_lon_start: 92.0
+  mesh_lon_stop: 142.0
+  k_g2m: 4
+  # "legacy" = 1 feature (z-scored Euclidean distance in degrees), reproduces 538,382 params
+  # "geo"    = 4 features (haversine km, dlat, dlon, |cos lat|) — Hieu's upgrade path
+  edge_features: legacy
+
+model:
+  name: graphcast            # graphcast | unet
+  hidden: 128               # width on the grid (31,959 nodes) — expensive to widen
+  mesh_hidden: null         # width on the mesh (500 nodes) — cheap; null = same as hidden
+  n_layers: 4
+  unet_base: 48
+  unet_depth: 3
+
+train:
+  batch_size: 4
+  lr: 1.0e-4
+  weight_decay: 1.0e-5
+  epochs: 50
+  patience: 7
+  grad_clip: 1.0
+  amp: true
+  multi_gpu: true            # DataParallel when >1 GPU (Kaggle T4 ×2)
+  num_workers: 4
+  prefetch: 4
+  max_steps_per_epoch: null  # set small for smoke tests
+  # "state" = loss on the normalised state (legacy).  "delta" = loss on ΔX scaled by the
+  # tendency std of each channel (GraphCast-style; every variable counts equally).
+  loss_norm: state
+  channel_weights: {}        # e.g. {tp: 0.5, z500: 2.0}; multiplies the per-channel loss
+  rollout_steps: 1           # Proposal 3: >1 = multi-step fine-tuning
+  grad_checkpoint: false     # recompute activations per step in backward (needed for rollout_steps ≥ 4)
+  init_from: null            # start from these weights (fresh optimiser), e.g. the single-step best.pt
+  spectral_weight: 0.0       # Proposal 3: weight of the spectral loss term
+  max_hours: null            # stop cleanly before this many hours (Kaggle: 11.5) and save last.pt
+  resume: null               # path (or file name under /kaggle/input) of last.pt to continue training
+
+boundary:
+  # Force a band of this many degrees at the domain edge with ERA5 every step and score the
+  # interior only (regional-model practice). 0 = off (legacy).
+  width_deg: 0
+
+eval:
+  split: test
+  n_starts: 30
+  n_steps: 12                # 12 × 6 h = 72 h
+  # How satellite input is fed at lead times > 0 during rollout:
+  #   persist = repeat the last observed Tb (honest, operationally possible)
+  #   oracle  = use the observed future Tb (legacy notebooks did this — leaks the future!)
+  #   mask    = Tb = 0 and mask = 0
+  tb_policy: persist
+  climatology: train_month_hour   # never the test-set mean
+  regions: [all, land, sea, mountain, plain]
