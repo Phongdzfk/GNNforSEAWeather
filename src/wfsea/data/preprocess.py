@@ -63,12 +63,8 @@ def open_nasa_year(raw_root, year: int, chunks=None) -> xr.Dataset:
     return ds
 
 
-def tb_stats_streaming(years, raw_root=None, file_stride: int = 5) -> tuple[float, float, int]:
-    """Mean/std of raw 4 km Tb over the train years, reading every `file_stride`-th file.
-
-    Reading all ~14,600 files of 10 years is I/O-bound for hours; a stride of 5 cycles through
-    the four synoptic hours and keeps the estimate unbiased. Streaming float64 sums, no dask.
-    """
+def tb_sums(years, raw_root=None, file_stride: int = 5) -> tuple[float, float, int]:
+    """(sum, sum of squares, count) of raw 4 km Tb over `years`, reading every `file_stride`-th file."""
     s = ss = 0.0; n = 0
     for y in years:
         for f in nasa_files(raw_root, y)[::file_stride]:
@@ -79,6 +75,16 @@ def tb_stats_streaming(years, raw_root=None, file_stride: int = 5) -> tuple[floa
                 v = da.values.astype(np.float64)
             v = v[np.isfinite(v)]
             s += v.sum(); ss += (v * v).sum(); n += v.size
+    return s, ss, n
+
+
+def tb_stats_streaming(years, raw_root=None, file_stride: int = 5) -> tuple[float, float, int]:
+    """Mean/std of raw 4 km Tb over the train years, reading every `file_stride`-th file.
+
+    Reading all ~14,600 files of 10 years is I/O-bound for hours; a stride of 5 cycles through
+    the four synoptic hours and keeps the estimate unbiased. Streaming float64 sums, no dask.
+    """
+    s, ss, n = tb_sums(years, raw_root, file_stride)
     mean = s / n
     return float(mean), float(np.sqrt(max(ss / n - mean * mean, 1e-12))), int(n)
 

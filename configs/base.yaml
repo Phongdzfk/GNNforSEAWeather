@@ -39,6 +39,7 @@ data:
   cache_part_years: auto     # split the train cache into parts that fit one Kaggle output (≤ ~17 GB)
   regrid: box_mean           # MERGIR 4 km → 0.25°: box_mean (area average) | bilinear (what nb3 did)
   tb_file_stride: 5          # Tb stats: read every 5th MERGIR file (cycles the 4 synoptic hours)
+  stats_time_stride: 5       # ERA5 stats: every 5th 6-h step (cycles 00/06/12/18; ~290 maps/year is plenty)
   # Precipitation transform applied BEFORE normalisation (raw layout only; recorded in the stats file):
   #   log1p = log(1 + tp / 0.1 mm)  — tp is very skewed; this is decided at `wfsea stats` time.
   tp_transform: log1p

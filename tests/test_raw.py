@@ -74,3 +74,41 @@ def test_raw_stats_and_memmap(tmp_path):
     np.testing.assert_allclose(tb.mean(1), [250, 256, 262, 268], atol=0.5)
     assert c.mm["tbmask"][:].min() == 1
     assert c.meta["static_vars"] == ["lsm", "geopotential_surf"]
+
+
+def test_stats_partials_resume_and_split(tmp_path):
+    """Two half-runs (+ resume from a copied partial dir, parallel workers) == one full run."""
+    import shutil
+    from wfsea.data.stats import compute_year_partials, merge_partials
+    rng = np.random.default_rng(1)
+    era = nasa = tmp_path / "in"
+    for y in (2016, 2020):
+        _write_year(era / f"era5-{y}" / "era5_data" / f"year_{y}", y, rng)
+        _write_nasa(nasa / "nasa" / f"part{y}" / f"year_{y}", y)
+    full = compute_stats_raw([2016, 2020], era, nasa, tb_file_stride=1, out_dir=tmp_path / "full")
+    a = tmp_path / "a"; b = tmp_path / "b"
+    compute_year_partials([2016], a, era, nasa, tb_file_stride=1)
+    shutil.copytree(a, tmp_path / "inputs" / "a")              # like attaching notebook A's output
+    parts = compute_year_partials([2016, 2020], b, era, nasa, tb_file_stride=1, workers=2,
+                                  search_dirs=[tmp_path / "inputs"])
+    assert (b / "stats_partial" / "year_2016.json").exists()   # carried over, not recomputed
+    st = merge_partials(parts, [2016, 2020])
+    for k in full.mean:
+        assert abs(st.mean[k] - full.mean[k]) < 1e-9 * max(1, abs(full.mean[k]))
+        assert abs(st.std[k] - full.std[k]) < 1e-9 * max(1, abs(full.std[k]))
+    assert abs(st.tb_mean - full.tb_mean) < 1e-9
+
+
+def test_year_picks_own_notebook_and_fills_gaps(tmp_path):
+    """Year Y must come from notebook Y, not from notebook Y-1 (which also touches 31 Dec of Y-1),
+    and a year split over two notebooks (Jan–Feb + rest) is merged."""
+    from wfsea.data import raw_index as ri
+    ri._scan_cached.cache_clear(); ri._open.cache_clear()
+    rng = np.random.default_rng(3)
+    root = tmp_path / "in"
+    _write_year(root / "nb-2015" / "era5_data", 2015, rng)
+    _write_year(root / "nb-2016" / "era5_data", 2016, rng)
+    ds = ri.open_era5_year_indexed(2016, [str(root)], pressure_vars=("z",), levels=(850,),
+                                   surface_vars=("t2m", "tp"), static_vars=())
+    t = pd.DatetimeIndex(ds.time.values)
+    assert t.year.unique().tolist() == [2016] and len(t) > 10

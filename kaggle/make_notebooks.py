@@ -67,22 +67,29 @@ NOTEBOOKS = {
                  "(0.25°, 37 tầng, ERA5 tới 2026-06-30, ERA5T tới gần hiện tại), không có hàng đợi CDS.\n"
                  "Chạy bằng **Save & Run All**, Accelerator: None, **Internet: On**, không cần Secret. "
                  "Mỗi file = 1 tháng (~0,5 GB) → ~6 GB/năm → tối đa 3 năm/notebook (giới hạn 20 GB output).\n"
-                 "Tháng nào xong là ghi file luôn; hết 11,3 h thì dừng gọn. Chưa xong: tạo version mới, gắn output "
-                 "version trước làm input **và** copy nó sang /kaggle/working (ô thứ 3) → chỉ tải các tháng còn thiếu.",
+                 "Tháng nào xong là ghi file luôn; hết 11,3 h thì dừng gọn. Chưa xong: tạo **notebook mới** "
+                 "(đừng tạo version mới của notebook cũ — output cũ sẽ bị thay), đặt YEARS = các năm còn thiếu, gắn output "
+                 "notebook cũ làm input → ô thứ 3 copy các tháng đã xong của những năm đó, rồi chỉ tải phần còn thiếu.",
         "cells": [
             "YEARS   = '2015-2017'   # ← mỗi notebook một nhóm năm (≤ 3 năm)\n"
             "CONFIG  = 'configs/levels7.yaml'\n"
-            "WORKERS = 0             # số chunk tải song song; 0 = tự đo 8/16/32 (~2 phút) rồi chọn nhanh nhất",
+            "WORKERS = 0             # số chunk tải song song; 0 = tự đo 8/16/32 (~2 phút) rồi chọn nhanh nhất\n"
+            "SINGLE  = False         # True = tải SINGLE levels (u10,v10,d2m,t2m,msl,tp 6h,z,lsm) thay vì pressure\n"
+            "KIND    = 'single' if SINGLE else 'pressure'\n"
+            "FLAGS   = '--single' if SINGLE else ''",
             "!pip install -q 'zarr>=3' gcsfs",
-            "# Tiếp tục từ version trước (nếu có gắn làm input): copy các tháng đã xong sang working\n"
-            "import glob, os, shutil\n"
-            "for f in glob.glob('/kaggle/input/**/era5_pressure_gcs_*.nc', recursive=True):\n"
-            "    d = '/kaggle/working/era5_pressure/' + f.split('/')[-2]; os.makedirs(d, exist_ok=True)\n"
+            "# Chạy tiếp phần dở của notebook trước (nếu có gắn làm input): chỉ copy các tháng đã xong\n"
+            "# CỦA CÁC NĂM TRONG YEARS (năm khác không copy → không phình output quá 20 GB)\n"
+            "import glob, os, re, shutil\n"
+            "a, _, b = YEARS.partition('-'); want = set(range(int(a), int(b or a) + 1)) if ',' not in YEARS else set(map(int, YEARS.split(',')))\n"
+            "for f in glob.glob(f'/kaggle/input/**/era5_{KIND}_gcs_*.nc', recursive=True):\n"
+            "    if '_partial' in f or int(re.search(r'gcs_(\\d{4})-', f).group(1)) not in want: continue\n"
+            "    d = f'/kaggle/working/era5_{KIND}/' + f.split('/')[-2]; os.makedirs(d, exist_ok=True)\n"
             "    dst = os.path.join(d, os.path.basename(f))\n"
             "    if not os.path.exists(dst): shutil.copy(f, dst)\n"
-            "print(len(glob.glob('/kaggle/working/era5_pressure/*/*.nc')), 'tháng đã có')",
-            "!wfsea download-gcs --config {CONFIG} --years {YEARS} --workers {WORKERS}",
-            "!wfsea raw-index --config {CONFIG} paths.era5_raw_root=/kaggle/working/era5_pressure",
+            "print(sorted(os.path.basename(p)[-10:-3] for p in glob.glob(f'/kaggle/working/era5_{KIND}/*/*.nc')), '← tháng đã có')",
+            "!wfsea download-gcs --config {CONFIG} --years {YEARS} --workers {WORKERS} {FLAGS}",
+            "!wfsea raw-index --config {CONFIG} paths.era5_raw_root=/kaggle/working/era5_{KIND}",
         ],
     },
     "00a_stats": {
@@ -90,12 +97,19 @@ NOTEBOOKS = {
         "intro": "**Input:** gắn TẤT CẢ notebook/dataset dữ liệu thô ERA5 (single levels + pressure levels) và NASA, mọi năm. "
                  "Code nhận file theo **nội dung** (biến, tầng, thời gian), không theo tên file/thư mục, nên layout của các "
                  "notebook tải cũ (`era5_data/…instant_<tháng>.nc`, `era5_data_pressure/…`, dữ liệu hourly) đều đọc được.\n"
-                 "Ô đầu tiên in bảng kiểm kê — xem kỹ có thiếu năm/tầng nào không trước khi tính stats. Accelerator: None.",
+                 "Ô đầu tiên in bảng kiểm kê — xem kỹ có thiếu năm/tầng nào không trước khi tính stats. Accelerator: None.\n"
+                 "Stats tính **từng năm** (4 năm song song, lấy mẫu mỗi 5 bước 6 h) và lưu ngay `stats/stats_partial/year_<y>.json`. "
+                 "Hết giờ hoặc muốn chia người: notebook khác đặt `STATS_YEARS`, rồi một notebook cuối gắn output của các notebook kia "
+                 "làm input và chạy với `STATS_YEARS=''` → chỉ tính năm còn thiếu rồi gộp thành stats cuối.",
         "cells": [
-            "CONFIG = 'configs/levels7.yaml'   # dữ liệu mới 7 tầng; dùng 'configs/kaggle.yaml' cho 14 kênh cũ",
+            "CONFIG      = 'configs/levels7.yaml'   # dữ liệu mới 7 tầng; dùng 'configs/kaggle.yaml' cho 14 kênh cũ\n"
+            "STATS_YEARS = ''                       # '' = mọi năm train còn thiếu; hoặc ví dụ '2015-2019' để chia người\n"
+            "YEARS_ARG   = f'--years {STATS_YEARS}' if STATS_YEARS else ''",
             "!wfsea raw-index --config {CONFIG}",
-            "!wfsea stats --config {CONFIG}",
-            "import json; s = json.load(open('/kaggle/working/stats/era5_normalization_stats.json'))\n"
+            "!wfsea stats --config {CONFIG} {YEARS_ARG}",
+            "import json, os; f = '/kaggle/working/stats/era5_normalization_stats.json'\n"
+            "if not os.path.exists(f): raise SystemExit('chưa đủ năm train — xem log ô trên')\n"
+            "s = json.load(open(f))\n"
             "print(s['_meta']); print({k: v for k, v in s.items() if k in ('t2m', 'msl', 'tp', 't_850hpa', 'q_850hpa')})",
         ],
     },

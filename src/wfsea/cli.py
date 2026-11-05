@@ -111,12 +111,13 @@ def main(argv=None):
     ap.add_argument("--forecast-dir", default=None)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--part", type=int, default=None, help="materialize: build only this part of the train cache")
-    ap.add_argument("--years", default=None, help="download-*: e.g. 2015-2018 or 2015,2016")
+    ap.add_argument("--years", default=None, help="download-*/stats: e.g. 2015-2018 or 2015,2016")
     ap.add_argument("--max-new", type=int, default=48, help="download-submit: max new requests this run")
     ap.add_argument("--wait-hours", type=float, default=0.0, help="download-fetch: keep polling this long")
-    ap.add_argument("--workers", type=int, default=0, help="download-gcs: parallel chunk reads (0 = auto)")
-    ap.add_argument("--max-hours", type=float, default=None, help="download-gcs: stop starting new months after this")
+    ap.add_argument("--workers", type=int, default=0, help="download-gcs: parallel chunk reads (0 = auto); stats: parallel years (0 = 4)")
+    ap.add_argument("--max-hours", type=float, default=None, help="download-gcs/stats: stop starting new months/years after this")
     ap.add_argument("--bench", action="store_true", help="download-gcs: only measure speed, write nothing")
+    ap.add_argument("--single", action="store_true", help="download-gcs: single levels (u10,v10,d2m,t2m,msl,tp,z,lsm)")
     ap.add_argument("--no-checksum", action="store_true")
     ap.add_argument("--legacy-levels", default="850,500",
                     help="pressure_level order inside the old Zarr files (only for old notebook checkpoints)")
@@ -127,16 +128,30 @@ def main(argv=None):
     cmd = args.command
 
     if cmd == "stats":
+        from wfsea.config import ON_KAGGLE
         from wfsea.constants import schema_from_config
-        from wfsea.data.stats import compute_stats_raw, save_stats
-        years = cfg["data"]["train_years"]
-        st = compute_stats_raw(years, cfg["paths"].get("era5_raw_root"), cfg["paths"].get("nasa_raw_root"),
-                               cfg["data"].get("tb_file_stride", 5), cfg["data"].get("tp_transform"),
-                               schema=schema_from_config(cfg))
+        from wfsea.data.stats import compute_year_partials, merge_partials, save_stats
+        train = [int(y) for y in cfg["data"]["train_years"]]
+        years = _parse_years(args.years) if args.years else train
+        bad = [y for y in years if y not in train]
+        if bad:
+            raise SystemExit(f"stats are train-only; {bad} not in train_years {train}")
         dest = Path(cfg["paths"].get("stats_dir") or out / "stats")
-        save_stats(st, dest)
-        print(f"saved train-only stats ({years[0]}–{years[-1]}) → {dest}")
-        print(f"  Tb mean {st.tb_mean:.2f} K, std {st.tb_std:.2f} K | t2m mean {st.mean.get('t2m', float('nan')):.2f}")
+        mh = args.max_hours if args.max_hours is not None else (11.0 if ON_KAGGLE else None)
+        parts = compute_year_partials(
+            years, dest, cfg["paths"].get("era5_raw_root"), cfg["paths"].get("nasa_raw_root"),
+            cfg["data"].get("tb_file_stride", 5), cfg["data"].get("tp_transform"), schema=schema_from_config(cfg),
+            time_stride=int(cfg["data"].get("stats_time_stride", 5)), workers=args.workers or 4,
+            search_dirs=["/kaggle/input"] if ON_KAGGLE else [], max_hours=mh)
+        missing = [y for y in train if y not in parts]
+        if missing:
+            print(f"[stats] partial sums saved in {dest}/stats_partial. Still missing train years {missing}: run "
+                  f"`wfsea stats` again (attach this output as input) or let a teammate run --years for them.")
+        else:
+            st = merge_partials(parts, train)
+            save_stats(st, dest)
+            print(f"saved train-only stats ({train[0]}–{train[-1]}) → {dest}")
+            print(f"  Tb mean {st.tb_mean:.2f} K, std {st.tb_std:.2f} K | t2m mean {st.mean.get('t2m', float('nan')):.2f}")
 
     elif cmd in ("download-submit", "download-fetch", "download-gcs"):
         from wfsea.config import ON_KAGGLE
@@ -161,8 +176,12 @@ def main(argv=None):
         else:
             url = cfg.get("download", {}).get("gcs_url") or dl.GCS_ARCO_URL
             mh = args.max_hours if args.max_hours is not None else (11.3 if ON_KAGGLE else None)
-            dl.gcs_pressure_download(years, sc["pressure_vars"], sc["levels"], dest, url=url,
-                                     workers=args.workers, max_hours=mh, bench=args.bench)
+            if args.single:
+                dl.gcs_single_download(years, out / "era5_single", url=url, workers=args.workers or 32,
+                                       max_hours=mh, tp_accum_hours=sc.get("tp_accum_hours", 6))
+            else:
+                dl.gcs_pressure_download(years, sc["pressure_vars"], sc["levels"], dest, url=url,
+                                         workers=args.workers, max_hours=mh, bench=args.bench)
 
     elif cmd == "raw-index":
         from wfsea.data.raw_index import scan_era5, summarize

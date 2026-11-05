@@ -378,6 +378,106 @@ def gcs_pressure_download(years, variables, levels, out_dir: str | Path, url: st
     print(f"[gcs] done in {(time.time() - t_start) / 3600:.2f} h", flush=True)
 
 
+GCS_SINGLE = {"u10": "10m_u_component_of_wind", "v10": "10m_v_component_of_wind",
+              "d2m": "2m_dewpoint_temperature", "t2m": "2m_temperature", "msl": "mean_sea_level_pressure",
+              "tp": "total_precipitation", "z": "geopotential_at_surface", "lsm": "land_sea_mask"}
+
+
+def _read2d(ds, name, ti, sy, sx, tries=5):
+    import time
+    da = ds[name]
+    for k in range(tries):
+        try:
+            if "time" in da.dims:
+                da1 = da.isel(time=ti)
+            else:
+                da1 = da
+            return da1.isel(latitude=sy, longitude=sx).values.astype("float32")
+        except Exception as e:
+            if k == tries - 1:
+                raise
+            print(f"[gcs] retry {name} t={ti}: {type(e).__name__}", flush=True)
+            time.sleep(5 * (k + 1))
+
+
+def gcs_single_download(years, out_dir: str | Path, url: str = GCS_ARCO_URL, variables=tuple(GCS_SINGLE),
+                        workers: int = 32, max_hours: float | None = None, era5t: bool = True,
+                        tp_accum_hours: int = 6) -> None:
+    """Single-level fields from the same public ARCO-ERA5 store, 6-hourly, one NetCDF per month:
+    era5_single/year_<y>/era5_single_gcs_<y>-<mm>.nc with vars u10,v10,d2m,t2m,msl,tp,z,lsm.
+    tp is written ALREADY summed over the previous `tp_accum_hours` hours (from hourly tp), so the
+    file has a 6-h step and raw_index uses it as is. Surface chunks are 2-D (~2 MB) → much faster
+    than pressure levels."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+    try:
+        import zarr
+        zarr.config.set({"async.concurrency": max(32, 2 * workers)})
+    except Exception:
+        pass
+    t_start = time.time()
+    ds = _open_gcs(url)
+    stop = pd.Timestamp(ds.attrs.get("valid_time_stop_era5t" if era5t else "valid_time_stop") or ds.time.values[-1])
+    sy, sx, _ = _gcs_index(ds, [int(ds["level"].values[0])])
+    lat, lon = ds["latitude"].values[sy], ds["longitude"].values[sx]
+    tindex = pd.DatetimeIndex(ds["time"].values)
+    names = {v: GCS_SINGLE[v] for v in variables}
+    static = {v: _read2d(ds, n, 0, sy, sx) for v, n in names.items() if v in ("z", "lsm")}
+    print(f"[gcs] single levels {list(names)}; data up to {stop}", flush=True)
+    pool = ThreadPoolExecutor(workers)
+    for y in sorted(int(x) for x in years):
+        for m in range(1, 13):
+            out = Path(out_dir) / f"year_{y}" / f"era5_single_gcs_{y}-{m:02d}.nc"
+            n_full = pd.Period(f"{y}-{m:02d}").days_in_month * 4
+            t = pd.date_range(f"{y}-{m:02d}-01", periods=n_full, freq="6h")
+            t = t[t <= stop]
+            if len(t) == 0:
+                continue
+            if len(t) < n_full:
+                out = out.with_name(out.stem + "_partial.nc")
+            if out.exists():
+                continue
+            if max_hours and (time.time() - t_start) / 3600 > max_hours:
+                print(f"[gcs] time budget {max_hours} h reached — re-run to continue"); pool.shutdown(wait=False); return
+            t0 = time.time()
+            ti = tindex.get_indexer(t)
+            data = {}
+            inst = [v for v in names if v not in static and v != "tp"]
+            res = list(pool.map(lambda a: _read2d(ds, names[a[0]], int(a[1]), sy, sx),
+                                [(v, i) for v in inst for i in ti]))
+            for j, v in enumerate(inst):
+                data[v] = np.stack(res[j * len(ti):(j + 1) * len(ti)])
+            if "tp" in names:
+                hours = pd.date_range(t[0] - pd.Timedelta(hours=tp_accum_hours - 1), t[-1], freq="1h")
+                hi = tindex.get_indexer(hours)
+                if (hi < 0).any():
+                    raise ValueError(f"{y}-{m:02d}: hourly tp missing in store")
+                hourly = np.stack(list(pool.map(lambda i: _read2d(ds, names["tp"], int(i), sy, sx), hi)))
+                c = np.concatenate([np.zeros((1,) + hourly.shape[1:], "float64"), np.cumsum(hourly, 0, dtype="float64")])
+                ends = np.arange(tp_accum_hours - 1, len(hours), 6)[: len(t)] + 1
+                data["tp"] = (c[ends] - c[ends - tp_accum_hours]).astype("float32").clip(min=0)
+            for v, a in static.items():
+                data[v] = np.broadcast_to(a, (len(t),) + a.shape)
+            dsm = xr.Dataset({v: (("valid_time", "latitude", "longitude"), data[v]) for v in names},
+                             coords={"valid_time": t.values, "latitude": lat, "longitude": lon},
+                             attrs={"source": url, "note": f"ARCO-ERA5 (Google), 6-hourly; tp = sum of previous "
+                                                          f"{tp_accum_hours} hourly values"})
+            dsm["tp"].attrs["accumulation"] = f"{tp_accum_hours} h"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_suffix(".nc.part")
+            dsm.to_netcdf(tmp, engine="h5netcdf",
+                          encoding={v: {"zlib": True, "complevel": 1, "shuffle": True} for v in names})
+            tmp.rename(out)
+            dt = time.time() - t0
+            print(f"[gcs] single {y}-{m:02d}: {len(t)} steps in {dt / 60:.1f} min", flush=True)
+    pool.shutdown()
+    print(f"[gcs] single levels done in {(time.time() - t_start) / 3600:.2f} h", flush=True)
+
+
 def mergir_urls(start: datetime, end: datetime) -> list[str]:
     urls, day = [], start
     while day <= end:

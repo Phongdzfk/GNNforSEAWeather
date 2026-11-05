@@ -133,3 +133,36 @@ def test_gcs_download_layout(tmp_path, monkeypatch):
     assert f.stat().st_mtime == mtime
     idx = [r for r in scan_era5([str(out)]) if r.kind == "pressure"]
     assert idx and set(idx[0].vars) == {"z", "t", "q", "u", "v"} and idx[0].step_h == 6.0
+
+
+def test_gcs_single_tp_sum_and_index(tmp_path, monkeypatch):
+    """Single levels from a fake ARCO store: 6-h tp = sum of the 6 previous hourly values;
+    raw_index reads the files as a 6-h set and does not sum again."""
+    import numpy as np, pandas as pd, xarray as xr
+    from wfsea.data import download as dl
+    from wfsea.data import raw_index as ri
+    for k, v in dict(LAT_MAX=10.0, LAT_MIN=8.0, LON_MIN=100.0, LON_MAX=102.5).items():
+        monkeypatch.setattr(dl, k, v)
+    t = pd.date_range("2019-12-31T00", "2020-02-01T00", freq="1h")
+    lat = np.arange(11.0, 7.0 - 1e-9, -0.25); lon = np.arange(99.0, 104.0 + 1e-9, 0.25)
+    hrs = ((t - t[0]) / pd.Timedelta("1h")).values.astype("float32")
+    f3 = lambda base: (("time", "latitude", "longitude"),
+                       np.broadcast_to(base[:, None, None], (len(t), len(lat), len(lon))).astype("float32"))
+    vars_ = {n: f3(hrs + i) for i, n in enumerate(dl.GCS_SINGLE.values())}
+    vars_["total_precipitation"] = f3(np.ones(len(t), "float32") * 1e-3)
+    vars_["temperature"] = (("time", "level", "latitude", "longitude"),
+                            np.zeros((len(t), 1, len(lat), len(lon)), "float32"))
+    store = xr.Dataset(vars_, coords={"time": t, "level": [850], "latitude": lat, "longitude": lon},
+                       attrs={"valid_time_stop": "2020-01-31T23:00", "valid_time_stop_era5t": "2020-01-31T23:00"})
+    url = str(tmp_path / "arco.zarr"); store.chunk({"time": 24}).to_zarr(url)
+    out = tmp_path / "era5_single"
+    dl.gcs_single_download([2020], out, url=url, workers=4)
+    f = out / "year_2020" / "era5_single_gcs_2020-01.nc"
+    with xr.open_dataset(f, engine="h5netcdf") as d:
+        assert d.sizes["valid_time"] == 124 and set(d.data_vars) == set(dl.GCS_SINGLE)
+        assert np.allclose(d["tp"].values, 6e-3)                          # 6 hours × 1 mm
+        h = (pd.Timestamp("2020-01-02T12") - t[0]) / pd.Timedelta("1h")
+        assert float(d["t2m"].sel(valid_time="2020-01-02T12").isel(latitude=0, longitude=0)) == h + 3
+    ri._scan_cached.cache_clear(); ri._open.cache_clear()
+    idx = [r for r in ri.scan_era5([str(out)]) if r.kind == "single"]
+    assert idx and idx[0].step_h == 6.0
