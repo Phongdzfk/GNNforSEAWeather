@@ -154,6 +154,117 @@ def regrid_tb(tb: xr.DataArray, lats: np.ndarray, lons: np.ndarray, method: str 
     return out
 
 
+class TbBinner:
+    """Fast 4 km → 0.25° box statistics with a fixed pixel→cell map (built once per source grid).
+
+    Pixels are pre-sorted by target cell, so every statistic is one gather + one `reduceat`
+    (no bincount / ufunc.at per frame). Only the rows/cols that fall in the domain are read."""
+
+    def __init__(self, src_lat, src_lon, lats, lons):
+        def _bin(src, tgt):
+            res = abs(float(tgt[1] - tgt[0]))
+            idx = np.rint((src - tgt[0]) / (tgt[1] - tgt[0])).astype(int)
+            ok = (idx >= 0) & (idx < len(tgt)) & (np.abs(src - tgt[np.clip(idx, 0, len(tgt) - 1)]) <= res / 2 + 1e-9)
+            return np.where(ok, idx, -1)
+        il, jl = _bin(np.asarray(src_lat), lats), _bin(np.asarray(src_lon), lons)
+        r, c = np.flatnonzero(il >= 0), np.flatnonzero(jl >= 0)
+        if not len(r) or not len(c):
+            raise ValueError("MERGIR grid does not overlap the domain")
+        self.rows, self.cols = slice(r[0], r[-1] + 1), slice(c[0], c[-1] + 1)
+        self.src_shape = (len(src_lat), len(src_lon))
+        ii, jj = np.meshgrid(il[self.rows], jl[self.cols], indexing="ij")
+        valid = ((ii >= 0) & (jj >= 0)).ravel()
+        flat = (ii * len(lons) + jj).ravel()
+        pix = np.flatnonzero(valid)
+        order = np.argsort(flat[pix], kind="stable")
+        self.sel = pix[order]
+        cells_sorted = flat[pix][order]
+        self.cells, self.starts = np.unique(cells_sorted, return_index=True)
+        self.n_cells, self.shape = len(lats) * len(lons), (len(lats), len(lons))
+
+    def __call__(self, crop: np.ndarray, subgrid: bool = True) -> dict[str, np.ndarray]:
+        v = crop.ravel()[self.sel].astype(np.float64)
+        fin = np.isfinite(v)
+        v0 = np.where(fin, v, 0.0)
+        cnt = np.add.reduceat(fin.astype(np.int64), self.starts)
+        has = cnt > 0
+        def put(a):
+            out = np.full(self.n_cells, np.nan, np.float32)
+            out[self.cells] = np.where(has, a, np.nan)
+            return out.reshape(self.shape)
+        mean = np.add.reduceat(v0, self.starts) / np.maximum(cnt, 1)
+        res = {"Tb": put(mean)}
+        if subgrid:
+            ss = np.add.reduceat(v0 * v0, self.starts) / np.maximum(cnt, 1)
+            res["Tb_std"] = put(np.sqrt(np.clip(ss - mean ** 2, 0, None)))
+            res["Tb_min"] = put(np.minimum.reduceat(np.where(fin, v, np.inf), self.starts))
+            for k, thr in TB_COLD.items():
+                res[k] = put(np.add.reduceat((fin & (v < thr)).astype(np.float64), self.starts) / np.maximum(cnt, 1))
+        return res
+
+
+_TB_JOB: dict = {}
+
+
+def _tb_init(binner, subgrid):
+    _TB_JOB["binner"], _TB_JOB["subgrid"] = binner, subgrid
+
+
+def _tb_file(path: str):
+    """Read the on-the-hour Tb frame of one MERGIR file, domain crop only, and bin it."""
+    b, subgrid = _TB_JOB["binner"], _TB_JOB["subgrid"]
+    with xr.open_dataset(path, engine="h5netcdf") as ds:
+        da = ds["Tb" if "Tb" in ds else "IR"]
+        if (da.sizes.get("lat"), da.sizes.get("lon")) != b.src_shape:
+            raise ValueError(f"{path}: MERGIR grid differs from the first file")
+        if "time" in da.dims:
+            da = da.sel(time=da.time.dt.minute == 0)
+            t = da.time.values[0] if da.sizes["time"] else None
+            da = da.isel(time=0) if da.sizes["time"] else None
+        else:
+            t = None
+        if da is None:
+            return None, None
+        crop = da.isel(lat=b.rows, lon=b.cols).values
+    return t, b(crop, subgrid)
+
+
+def tb_regrid_year(year: int, nasa_root, lats, lons, times, subgrid: bool = False, workers: int = 4) -> xr.Dataset:
+    """MERGIR → 0.25° for one year, aligned to `times` (missing → NaN). Raw Kelvin / fractions.
+    Streams file by file in `workers` processes; RAM ≈ one year of 0.25° fields (~1 GB)."""
+    import time as _time
+    from concurrent.futures import ProcessPoolExecutor
+    import multiprocessing as mp
+    files = nasa_files(nasa_root, year)
+    with xr.open_dataset(files[0], engine="h5netcdf") as d0:
+        binner = TbBinner(d0["lat"].values, d0["lon"].values, np.asarray(lats), np.asarray(lons))
+    _tb_init(binner, subgrid)
+    keys = ["Tb"] + (list(TB_SUBGRID) if subgrid else [])
+    pos = {np.datetime64(t, "ns"): i for i, t in enumerate(np.asarray(times).astype("datetime64[ns]"))}
+    out = {k: np.full((len(times), len(lats), len(lons)), np.nan, np.float32) for k in keys}
+    t0, n = _time.time(), 0
+    ctx = mp.get_context("spawn")      # not fork: the parent has dask/HDF5 threads → fork can deadlock
+    pool = (ProcessPoolExecutor(workers, mp_context=ctx, initializer=_tb_init, initargs=(binner, subgrid))
+            if workers > 1 else _Serial())
+    with pool as ex:
+        for t, res in ex.map(_tb_file, files, chunksize=8):
+            n += 1
+            if t is not None and np.datetime64(t, "ns") in pos:
+                i = pos[np.datetime64(t, "ns")]
+                for k in keys:
+                    out[k][i] = res[k]
+            if n % 200 == 0 or n == len(files):
+                print(f"  [tb {year}] {n}/{len(files)} files, {(_time.time() - t0) / 60:.1f} min", flush=True)
+    coords = {"time": np.asarray(times), "lat": np.asarray(lats), "lon": np.asarray(lons)}
+    return xr.Dataset({k: (("time", "lat", "lon"), a) for k, a in out.items()}, coords=coords)
+
+
+class _Serial:
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def map(self, f, it, chunksize=1): return map(f, it)
+
+
 def save_zarr(ds: xr.Dataset, path: str | Path, chunks=None) -> None:
     for v in ds.variables:
         ds[v].encoding = {}
@@ -165,7 +276,7 @@ def save_zarr(ds: xr.Dataset, path: str | Path, chunks=None) -> None:
 
 
 def normalized_year(year: int, stats, era5_root=None, nasa_root=None, regrid: str = "box_mean",
-                    schema: dict | None = None, tb_subgrid: bool = False):
+                    schema: dict | None = None, tb_subgrid: bool = False, with_eye: bool = True):
     """Lazy normalised ERA5 dataset + eager normalised Tb on the ERA5 grid for one year (no files written)."""
     from wfsea.data.stats import tp_forward
     ds = open_era5_year(era5_root, year, schema=schema)
@@ -182,20 +293,32 @@ def normalized_year(year: int, stats, era5_root=None, nasa_root=None, regrid: st
             m, sd = stats.mean[v], stats.std[v]
         norm[v] = ((da - m) / sd).astype("float32")
     brain = xr.Dataset(norm)
-    tb = open_nasa_year(nasa_root, year)["Tb"]
-    tb = tb.sel(time=tb.time.isin(brain.time.values))     # on-the-hour slots only
-    if tb_subgrid:
-        r = regrid_tb(tb, brain.lat.values, brain.lon.values, regrid, subgrid=True)
-        eye = xr.Dataset({
-            "Tb": ((r["Tb"] - stats.tb_mean) / stats.tb_std).astype("float32"),
-            "Tb_min": ((r["Tb_min"] - stats.tb_mean) / stats.tb_std).astype("float32"),   # same scale as Tb
-            "Tb_std": (r["Tb_std"] / stats.tb_std).astype("float32"),
-            "Tb_f235": r["Tb_f235"].astype("float32"), "Tb_f208": r["Tb_f208"].astype("float32"),  # already 0..1
-        })
-        return brain, eye
-    eye = regrid_tb(tb, brain.lat.values, brain.lon.values, regrid)
-    eye = ((eye - stats.tb_mean) / stats.tb_std).astype("float32").to_dataset(name="Tb")
+    if not with_eye:                                   # caller builds Tb later (memmap: one year at a time)
+        return brain, None
+    eye = normalized_tb(year, stats, nasa_root, brain.lat.values, brain.lon.values, brain.time.values,
+                        regrid, tb_subgrid)
     return brain, eye
+
+
+def normalized_tb(year, stats, nasa_root, lats, lons, times, regrid="box_mean", tb_subgrid=False,
+                  workers: int | None = None) -> xr.Dataset:
+    """Normalised Tb (+ sub-grid stats) on the ERA5 grid at `times` for one year."""
+    if regrid == "box_mean":
+        r = tb_regrid_year(year, nasa_root, lats, lons, times, subgrid=tb_subgrid,
+                           workers=workers or min(4, os.cpu_count() or 1))
+    else:
+        if tb_subgrid:
+            raise ValueError("sub-grid Tb statistics need regrid=box_mean")
+        tb = open_nasa_year(nasa_root, year)["Tb"]
+        tb = tb.sel(time=tb.time.isin(times))
+        r = regrid_tb(tb, lats, lons, regrid).reindex(time=times).to_dataset(name="Tb")
+    eye = xr.Dataset({"Tb": ((r["Tb"] - stats.tb_mean) / stats.tb_std).astype("float32")})
+    if tb_subgrid:
+        eye["Tb_min"] = ((r["Tb_min"] - stats.tb_mean) / stats.tb_std).astype("float32")   # same scale as Tb
+        eye["Tb_std"] = (r["Tb_std"] / stats.tb_std).astype("float32")
+        eye["Tb_f235"] = r["Tb_f235"].astype("float32")                                   # already 0..1
+        eye["Tb_f208"] = r["Tb_f208"].astype("float32")
+    return eye
 
 
 def preprocess_year(year: int, era5_root, nasa_root, stats, out_root, regrid: str = "box_mean") -> dict:

@@ -190,7 +190,7 @@ def compute_year_partials(years, out_dir, era5_root=None, nasa_root=None, tb_fil
             save(year_sums(*a))
     else:
         import multiprocessing as mp
-        with ProcessPoolExecutor(min(workers, len(todo)), mp_context=mp.get_context("fork")) as ex:
+        with ProcessPoolExecutor(min(workers, len(todo)), mp_context=mp.get_context("spawn")) as ex:
             pending, queue = {}, list(args)
             while queue or pending:
                 while queue and len(pending) < workers and not (max_hours and (time.time() - t0) / 3600 > max_hours):

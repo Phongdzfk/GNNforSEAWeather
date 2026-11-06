@@ -78,10 +78,9 @@ def open_year(zarr_root: str | Path | None, year: int, layout: str, raw: dict | 
         raw = raw or {}
         if raw.get("stats") is None:
             raise ValueError("layout=raw needs normalisation stats (run `wfsea stats` first)")
-        brain, eye = normalized_year(year, raw["stats"], raw.get("era5_root"), raw.get("nasa_root"),
-                                     raw.get("regrid", "box_mean"), raw.get("schema"),
-                                     tb_subgrid=bool(raw.get("tb_subgrid")))
-        return brain, None, eye
+        brain, _ = normalized_year(year, raw["stats"], raw.get("era5_root"), raw.get("nasa_root"),
+                                   raw.get("regrid", "box_mean"), raw.get("schema"), with_eye=False)
+        return brain, None, None          # Tb is built in materialize_split when this year is written
     def _p(name):
         if zarr_root is not None and (Path(zarr_root) / name).exists():
             return Path(zarr_root) / name
@@ -126,8 +125,11 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     state = np.memmap(cache_dir / "state.f16", dtype=np.float16, mode="w+", shape=(T, G, C))
     tb = np.memmap(cache_dir / "tb.f16", dtype=np.float16, mode="w+", shape=(T, G))
     tbm = np.memmap(cache_dir / "tbmask.u8", dtype=np.uint8, mode="w+", shape=(T, G))
-    from wfsea.data.preprocess import TB_SUBGRID
-    sub = list(TB_SUBGRID) if all(k in opened[0][2].data_vars for k in TB_SUBGRID) else []
+    from wfsea.data.preprocess import TB_SUBGRID, normalized_tb
+    if layout == "raw":
+        sub = list(TB_SUBGRID) if raw.get("tb_subgrid") else []
+    else:
+        sub = list(TB_SUBGRID) if all(k in opened[0][2].data_vars for k in TB_SUBGRID) else []
     tbx = (np.memmap(cache_dir / "tbx.f16", dtype=np.float16, mode="w+", shape=(T, G, len(sub)))
            if sub else None)
     times = np.empty(T, dtype="datetime64[ns]")
@@ -138,9 +140,18 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     # Keep one block ≲ 0.5 GB so 41 channels on Kaggle (~30 GB RAM) stay far from the limit.
     block = max(8, min(block, int(5e8 // (G * C * 4))))
     pos = 0
+    import time as _time
+    t_start = _time.time()
+    print(f"[memmap] {cache_dir.name}: T={T} steps, G={G}, C={C}, block={block}, years={list(years)}", flush=True)
     for (x, extra, eye), year in zip(opened, years):
         if not (np.array_equal(x.lat.values, lats) and np.array_equal(x.lon.values, lons)):
             raise ValueError(f"Grid of {year} differs from {years[0]}")
+        if eye is None:                                    # raw layout: Tb of this year only, now
+            ty = _time.time()
+            eye = normalized_tb(year, raw["stats"], raw.get("nasa_root"), lats, lons, x.time.values,
+                                raw.get("regrid", "box_mean"), bool(raw.get("tb_subgrid")))
+            print(f"[memmap {year}] Tb done in {(_time.time() - ty) / 60:.1f} min", flush=True)
+        ty = _time.time()
         eye_tb = eye["Tb"].reindex(time=x.time.values)   # missing Tb → NaN → mask 0
         eye_x = eye[sub].reindex(time=x.time.values) if sub else None
         parts = [(x, eye_tb, eye_x)]
@@ -166,9 +177,13 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
                     xb = np.stack([x_part[k].isel(time=slice(t0, t1)).values.astype(np.float32)
                                    .reshape(t1 - t0, -1) for k in sub], axis=-1)
                     tbx[pos + t0:pos + t1] = np.nan_to_num(xb, nan=0.0).astype(np.float16)
-                print(f"  [memmap {year}] {pos + t1}/{T}", end="\r", flush=True)
+                if (t0 // block) % 10 == 0 or t1 == n:
+                    el = _time.time() - t_start
+                    print(f"  [memmap {year}] {pos + t1}/{T} steps | {el / 60:.1f} min elapsed, "
+                          f"~{el / (pos + t1) * (T - pos - t1) / 60:.0f} min left", flush=True)
             times[pos:pos + n] = ds_part.time.values
             pos += n
+        print(f"[memmap {year}] written in {(_time.time() - ty) / 60:.1f} min", flush=True)
     print()
     order = np.argsort(times, kind="stable")
     if not np.all(order == np.arange(T)):

@@ -157,3 +157,17 @@ def test_cache_with_tb_subgrid_and_features(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         ForcingBuilder(spec, c2)(0, 0)
+
+
+def test_tb_binner_matches_regrid_tb():
+    from wfsea.data.preprocess import TbBinner, regrid_tb
+    rng = np.random.default_rng(5)
+    plat = np.arange(-0.6, 1.4, 0.0364); plon = np.arange(99.4, 101.6, 0.0364)
+    v = (200 + 90 * rng.random((1, len(plat), len(plon)))).astype("f4"); v[0, 3:9, 5:20] = np.nan
+    lats, lons = np.arange(-0.5, 1.26, 0.25), np.arange(99.5, 101.51, 0.25)
+    tb = xr.DataArray(v, dims=("time", "lat", "lon"), coords={"time": [np.datetime64("2020-01-01")], "lat": plat, "lon": plon})
+    ref = regrid_tb(tb, lats, lons, subgrid=True)
+    b = TbBinner(plat, plon, lats, lons)
+    got = b(v[0][b.rows, b.cols])
+    for k in ("Tb", "Tb_min", "Tb_std", "Tb_f235", "Tb_f208"):
+        np.testing.assert_allclose(got[k], ref[k].values[0], rtol=1e-5, atol=1e-4, equal_nan=True)
