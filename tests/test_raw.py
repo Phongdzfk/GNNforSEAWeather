@@ -112,3 +112,48 @@ def test_year_picks_own_notebook_and_fills_gaps(tmp_path):
                                    surface_vars=("t2m", "tp"), static_vars=())
     t = pd.DatetimeIndex(ds.time.values)
     assert t.year.unique().tolist() == [2016] and len(t) > 10
+
+
+def test_regrid_tb_subgrid_stats():
+    """Sub-grid Tb stats per 0.25° cell: min, std, cold-pixel fractions."""
+    from wfsea.data.preprocess import regrid_tb
+    lats, lons = np.array([0.0, 0.25]), np.array([100.0, 100.25])
+    plat = np.arange(-0.1, 0.36, 0.05); plon = np.arange(99.9, 100.36, 0.05)     # ~5×5 pixels per cell
+    v = np.full((1, len(plat), len(plon)), 280.0, "f4")
+    li = np.where(np.abs(plat - 0.0) <= 0.125)[0]; lj = np.where(np.abs(plon - 100.0) <= 0.125)[0]
+    v[0, li[0], lj[0]] = 200.0                                                    # one overshooting top in cell (0,0)
+    v[0, li[1], lj[1]] = 230.0                                                    # one deep-convection pixel
+    tb = xr.DataArray(v, dims=("time", "lat", "lon"), coords={"time": [np.datetime64("2020-01-01")],
+                                                              "lat": plat, "lon": plon})
+    r = regrid_tb(tb, lats, lons, subgrid=True)
+    n = len(li) * len(lj)
+    assert float(r["Tb_min"][0, 0, 0]) == 200.0 and float(r["Tb_min"][0, 1, 1]) == 280.0
+    np.testing.assert_allclose(float(r["Tb_f235"][0, 0, 0]), 2 / n, rtol=1e-6)
+    np.testing.assert_allclose(float(r["Tb_f208"][0, 0, 0]), 1 / n, rtol=1e-6)
+    assert float(r["Tb_std"][0, 1, 1]) < 1e-3 and float(r["Tb_std"][0, 0, 0]) > 5
+    np.testing.assert_allclose(float(r["Tb"][0, 0, 0]), (280 * (n - 2) + 200 + 230) / n, rtol=1e-6)
+
+
+def test_cache_with_tb_subgrid_and_features(tmp_path):
+    from wfsea.data.features import ForcingBuilder, InputSpec
+    rng = np.random.default_rng(2)
+    era = nasa = tmp_path / "in"
+    _write_year(era / "e" / "year_2020", 2020, rng)
+    _write_nasa(nasa / "n" / "year_2020", 2020)
+    st = compute_stats_raw([2020], era, nasa, tb_file_stride=1)
+    raw = {"stats": st, "era5_root": era, "nasa_root": nasa, "regrid": "box_mean", "tb_subgrid": True}
+    c = SplitCache(materialize_split([2020], tmp_path / "c", layout="raw", raw=raw))
+    assert c.tb_subgrid == ["Tb_min", "Tb_std", "Tb_f235", "Tb_f208"]
+    x = c.mm["tbx"][:].astype(np.float32)
+    assert x.shape == (c.T, c.G, 4) and np.isfinite(x).all()
+    assert (x[..., 2:] == 0).all()                  # synthetic Tb 250–268 K: no pixels colder than 235 K
+    spec = InputSpec(n_dyn=c.C, n_static=2, tb_subgrid=True)
+    f = ForcingBuilder(spec, c)(0, 0)
+    assert f.shape == (c.G, spec.n_forcing) and spec.n_forcing == 12 + 2 + 4
+    assert len(spec.names([f"c{i}" for i in range(c.C)])) == spec.n_in
+    sl = spec.satellite_slice(); assert sl.stop - sl.start == 12
+    # a cache WITHOUT sub-grid stats must refuse a sub-grid spec
+    c2 = SplitCache(materialize_split([2020], tmp_path / "c2", layout="raw", raw={**raw, "tb_subgrid": False}))
+    import pytest
+    with pytest.raises(ValueError):
+        ForcingBuilder(spec, c2)(0, 0)

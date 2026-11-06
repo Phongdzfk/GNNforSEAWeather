@@ -115,8 +115,8 @@ NOTEBOOKS = {
     },
     "00b_cache_train": {
         "title": "00b · Raw → fp16 memmap cache, TRAIN (một phần mỗi notebook)",
-        "intro": "Chuẩn hoá bằng stats của 00a, nội suy Tb (box mean), ghi memmap fp16. Với 41 kênh, train được chia "
-                 "thành 3 phần (2015–2018, 2019–2022, 2023–2024), mỗi phần ≤ ~17 GB → mỗi notebook chạy **một** `PART`.\n"
+        "intro": "Chuẩn hoá bằng stats của 00a, nội suy Tb (box mean) **kèm 4 thống kê dưới lưới** (min, std, tỉ lệ mây < 235 K / < 208 K) cho module fusion vệ tinh, ghi memmap fp16. Với 41 kênh, train được chia "
+                 "thành 3 phần (2015–2018, 2019–2022, 2023–2024), mỗi phần ≤ ~17,5 GB → mỗi notebook chạy **một** `PART`.\n"
                  "RAM: đọc theo khối thời gian nhỏ (tự chỉnh theo số kênh), đỉnh ~2 GB. "
                  "**Input:** dữ liệu thô các năm của phần đó + output `00a_stats`. Accelerator: None.",
         "cells": [
@@ -125,7 +125,7 @@ NOTEBOOKS = {
             "!wfsea materialize --config {CONFIG} --split train --part {PART} paths.scratch=/kaggle/working",
             "import json, glob; m = json.load(open(glob.glob('/kaggle/working/train_*/meta.json')[0]))\n"
             "print(m['years'], m['time_start'], '→', m['time_end'], 'T =', m['T'], 'C =', m['C'], '| gaps:', m['gaps'][:5])\n"
-            "print('Tb coverage', round(m['tb_coverage'], 4), '| fp16 rel. RMSE worst:',\n"
+            "print('Tb coverage', round(m['tb_coverage'], 4), '| Tb sub-grid:', m.get('tb_subgrid'), '| fp16 rel. RMSE worst:',\n"
             "      sorted(m['fp16_relative_rmse'].items(), key=lambda kv: -kv[1])[:3])",
         ],
     },

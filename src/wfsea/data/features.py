@@ -58,6 +58,7 @@ class InputSpec:
     time: bool = False
     solar: bool = False
     n_past: int = 2
+    tb_subgrid: bool = False      # + 4 sub-grid Tb stats per lag (cache built with data.tb_subgrid)
 
     @classmethod
     def from_config(cls, cfg, n_dyn: int, n_static: int) -> "InputSpec":
@@ -65,11 +66,11 @@ class InputSpec:
         return cls(n_dyn=n_dyn, n_static=n_static, satellite=f.get("satellite", True),
                    position=f.get("position", True), static=f.get("static", True),
                    time=f.get("time", False), solar=f.get("solar", False),
-                   n_past=cfg.get("data", {}).get("n_past", 2))
+                   n_past=cfg.get("data", {}).get("n_past", 2), tb_subgrid=f.get("tb_subgrid", False))
 
     @property
     def n_forcing(self) -> int:
-        return (4 * self.satellite + self.n_static * self.static + 4 * self.position
+        return ((4 + 8 * self.tb_subgrid) * self.satellite + self.n_static * self.static + 4 * self.position
                 + 4 * self.time + 1 * self.solar)
 
     @property
@@ -78,7 +79,11 @@ class InputSpec:
 
     def names(self, channel_names) -> list[str]:
         out = [f"{c}(t)" for c in channel_names] + [f"{c}(t-1)" for c in channel_names][: self.n_dyn * (self.n_past - 1)]
-        if self.satellite: out += ["Tb(t)", "Tb_mask(t)", "Tb(t-1)", "Tb_mask(t-1)"]
+        if self.satellite:
+            for lag in ("t", "t-1"):
+                out += [f"Tb({lag})", f"Tb_mask({lag})"]
+                if self.tb_subgrid:
+                    out += [f"{k}({lag})" for k in ("Tb_min", "Tb_std", "Tb_f235", "Tb_f208")]
         if self.static: out += ["lsm", "geopotential_surf"][: self.n_static]
         if self.position: out += ["sin_lat", "cos_lat", "sin_lon", "cos_lon"]
         if self.time: out += ["sin_hour", "cos_hour", "sin_doy", "cos_doy"]
@@ -87,6 +92,11 @@ class InputSpec:
 
     def to_dict(self) -> dict:
         return dict(self.__dict__)
+
+    def satellite_slice(self) -> slice:
+        """Columns of the full model input that hold satellite features (for the fusion module)."""
+        start = self.n_dyn * self.n_past
+        return slice(start, start + (4 + 8 * self.tb_subgrid) * self.satellite)
 
 
 def tb_source_index(t0: int, k: int, lag: int, policy: str) -> tuple[int, bool]:
@@ -124,12 +134,18 @@ class ForcingBuilder:
         cols = []
         if self.spec.satellite:
             mm = self.cache.mm
+            nx = 4 if self.spec.tb_subgrid else 0
+            if nx and "tbx" not in mm:
+                raise ValueError("features.tb_subgrid=true but the cache has no sub-grid Tb (tbx.f16): rebuild "
+                                 "the caches with data.tb_subgrid=true")
             for lag in (0, 1):
                 idx, avail = tb_source_index(t0, k, lag, self.tb_policy)
                 if avail:
                     cols += [mm["tb"][idx].astype(np.float32)[:, None], mm["tbmask"][idx].astype(np.float32)[:, None]]
+                    if nx:
+                        cols.append(np.asarray(mm["tbx"][idx], dtype=np.float32))
                 else:
-                    cols += [np.zeros((G, 1), np.float32), np.zeros((G, 1), np.float32)]
+                    cols += [np.zeros((G, 2 + nx), np.float32)]
         cols.append(self._const)
         t = t0 + k
         if self.spec.time:

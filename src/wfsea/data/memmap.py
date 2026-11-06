@@ -4,6 +4,7 @@ Cache layout for one split (e.g. <scratch>/test_2026):
   state.f16   (T, G, C)  normalised dynamic channels (order in meta.json; default DYNAMIC_CHANNELS)
   tb.f16      (T, G)     normalised Tb, NaN → 0
   tbmask.u8   (T, G)     1 = Tb observed, 0 = missing
+  tbx.f16     (T, G, 4)  optional sub-grid Tb stats (min, std, frac<235 K, frac<208 K), see preprocess.TB_SUBGRID
   time.npy    (T,)       datetime64[ns]
   static.npy  (G, S)     normalised lsm, geopotential_surf
   meta.json   shapes, channel list, lat/lon, years, gaps, fp16 error report
@@ -41,9 +42,27 @@ def _channel(ds: xr.Dataset, var: str, lev: int | None) -> xr.DataArray:
 
 
 def _read_block(ds: xr.Dataset, t0: int, t1: int, channels=DYNAMIC_CHANNELS) -> np.ndarray:
-    arrs = [_channel(ds, v, l).isel(time=slice(t0, t1)).values.astype(np.float32).reshape(t1 - t0, -1)
-            for v, l in channels]
-    return np.stack(arrs, axis=-1)
+    """(t1-t0, G, C) float32. Each variable is read ONCE with all its levels: the raw files store the
+    levels of a variable together, so reading level by level would decompress the same chunks 7×."""
+    out = np.empty((t1 - t0, ds.sizes["lat"] * ds.sizes["lon"], len(channels)), np.float32)
+    by_var: dict[str, list[tuple[int, int | None]]] = {}
+    for i, (v, l) in enumerate(channels):
+        by_var.setdefault(v, []).append((i, l))
+    for v, items in by_var.items():
+        da = ds[v].isel(time=slice(t0, t1))
+        dim = _level_dim(da)
+        if dim is None:
+            a = da.values.astype(np.float32).reshape(t1 - t0, -1)
+            for i, l in items:
+                if l is not None:
+                    raise KeyError(f"{v} has no pressure level dim")
+                out[..., i] = a
+            continue
+        levs = [l for _, l in items]
+        a = da.sel({dim: levs}).transpose("time", dim, ...).values.astype(np.float32).reshape(t1 - t0, len(levs), -1)
+        for j, (i, _) in enumerate(items):
+            out[..., i] = a[:, j]
+    return out
 
 
 def open_year(zarr_root: str | Path | None, year: int, layout: str, raw: dict | None = None
@@ -60,7 +79,8 @@ def open_year(zarr_root: str | Path | None, year: int, layout: str, raw: dict | 
         if raw.get("stats") is None:
             raise ValueError("layout=raw needs normalisation stats (run `wfsea stats` first)")
         brain, eye = normalized_year(year, raw["stats"], raw.get("era5_root"), raw.get("nasa_root"),
-                                     raw.get("regrid", "box_mean"), raw.get("schema"))
+                                     raw.get("regrid", "box_mean"), raw.get("schema"),
+                                     tb_subgrid=bool(raw.get("tb_subgrid")))
         return brain, None, eye
     def _p(name):
         if zarr_root is not None and (Path(zarr_root) / name).exists():
@@ -91,7 +111,8 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     if meta_path.exists() and not force:
         meta = json.loads(meta_path.read_text())
         if (meta.get("format_version") == FORMAT_VERSION and meta.get("years") == list(map(int, years))
-                and meta.get("layout") == layout and [tuple(c) for c in meta["channels"]] == list(channels)):
+                and meta.get("layout") == layout and [tuple(c) for c in meta["channels"]] == list(channels)
+                and bool(meta.get("tb_subgrid")) == bool((raw or {}).get("tb_subgrid"))):
             print(f"[memmap] cache hit: {cache_dir}")
             return cache_dir
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +126,10 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     state = np.memmap(cache_dir / "state.f16", dtype=np.float16, mode="w+", shape=(T, G, C))
     tb = np.memmap(cache_dir / "tb.f16", dtype=np.float16, mode="w+", shape=(T, G))
     tbm = np.memmap(cache_dir / "tbmask.u8", dtype=np.uint8, mode="w+", shape=(T, G))
+    from wfsea.data.preprocess import TB_SUBGRID
+    sub = list(TB_SUBGRID) if all(k in opened[0][2].data_vars for k in TB_SUBGRID) else []
+    tbx = (np.memmap(cache_dir / "tbx.f16", dtype=np.float16, mode="w+", shape=(T, G, len(sub)))
+           if sub else None)
     times = np.empty(T, dtype="datetime64[ns]")
     nan_count = np.zeros(C, dtype=np.int64)
     q_err = np.zeros(C, dtype=np.float64); q_ref = np.zeros(C, dtype=np.float64)
@@ -117,10 +142,12 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
         if not (np.array_equal(x.lat.values, lats) and np.array_equal(x.lon.values, lons)):
             raise ValueError(f"Grid of {year} differs from {years[0]}")
         eye_tb = eye["Tb"].reindex(time=x.time.values)   # missing Tb → NaN → mask 0
-        parts = [(x, eye_tb)]
+        eye_x = eye[sub].reindex(time=x.time.values) if sub else None
+        parts = [(x, eye_tb, eye_x)]
         if extra is not None:
-            parts.append((extra, eye["Tb"].reindex(time=extra.time.values)))
-        for ds_part, tb_part in parts:
+            parts.append((extra, eye["Tb"].reindex(time=extra.time.values),
+                          eye[sub].reindex(time=extra.time.values) if sub else None))
+        for ds_part, tb_part, x_part in parts:
             n = ds_part.sizes["time"]
             for t0 in range(0, n, block):
                 t1 = min(t0 + block, n)
@@ -135,6 +162,10 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
                 tbr = tb_part.isel(time=slice(t0, t1)).values.astype(np.float32).reshape(t1 - t0, -1)
                 tbm[pos + t0:pos + t1] = np.isfinite(tbr)
                 tb[pos + t0:pos + t1] = np.nan_to_num(tbr, nan=0.0).astype(np.float16)
+                if sub:
+                    xb = np.stack([x_part[k].isel(time=slice(t0, t1)).values.astype(np.float32)
+                                   .reshape(t1 - t0, -1) for k in sub], axis=-1)
+                    tbx[pos + t0:pos + t1] = np.nan_to_num(xb, nan=0.0).astype(np.float16)
                 print(f"  [memmap {year}] {pos + t1}/{T}", end="\r", flush=True)
             times[pos:pos + n] = ds_part.time.values
             pos += n
@@ -143,6 +174,8 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     if not np.all(order == np.arange(T)):
         raise ValueError("Years must be given in chronological order")
     state.flush(); tb.flush(); tbm.flush()
+    if tbx is not None:
+        tbx.flush()
     np.save(cache_dir / "time.npy", times)
 
     # Statics (time-invariant) — taken from the first timestep.
@@ -164,6 +197,7 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
         "time_start": str(times[0])[:16], "time_end": str(times[-1])[:16],
         "gaps": gaps, "nan_count": dict(zip([channel_name(v, l) for v, l in channels], nan_count.tolist())),
         "tb_coverage": float(np.asarray(tbm).mean()),
+        "tb_subgrid": sub,
         "fp16_relative_rmse": dict(zip([channel_name(v, l) for v, l in channels],
                                        np.sqrt(q_err / np.maximum(q_ref, 1e-12)).tolist())),
     }
@@ -193,7 +227,14 @@ class SplitCache:
                 "tb": np.memmap(self.dir / "tb.f16", dtype=np.float16, mode="r", shape=(self.T, self.G)),
                 "tbmask": np.memmap(self.dir / "tbmask.u8", dtype=np.uint8, mode="r", shape=(self.T, self.G)),
             }
+            if self.tb_subgrid:
+                self._mm["tbx"] = np.memmap(self.dir / "tbx.f16", dtype=np.float16, mode="r",
+                                            shape=(self.T, self.G, len(self.tb_subgrid)))
         return self._mm
+
+    @property
+    def tb_subgrid(self) -> list[str]:
+        return list(self.meta.get("tb_subgrid") or [])
 
     def __getstate__(self):
         d = self.__dict__.copy(); d["_mm"] = None
@@ -264,6 +305,8 @@ class MultiSplitCache(SplitCache):
         for c in self.parts[1:]:
             if c.channels != p0.channels or c.G != p0.G:
                 raise ValueError("cache parts have different channels or grids")
+            if c.tb_subgrid != p0.tb_subgrid:
+                raise ValueError("cache parts differ in sub-grid Tb channels (rebuild with the same data.tb_subgrid)")
         self.dir = p0.dir
         self.meta = dict(p0.meta)
         self.meta["years"] = sum((c.meta["years"] for c in self.parts), [])
@@ -276,7 +319,8 @@ class MultiSplitCache(SplitCache):
     @property
     def mm(self) -> dict:
         if self._mm is None:
-            self._mm = {k: _Concat([c.mm[k] for c in self.parts]) for k in ("state", "tb", "tbmask")}
+            keys = ["state", "tb", "tbmask"] + (["tbx"] if self.tb_subgrid else [])
+            self._mm = {k: _Concat([c.mm[k] for c in self.parts]) for k in keys}
         return self._mm
 
 
@@ -286,14 +330,15 @@ def open_cache(path_or_paths) -> SplitCache:
     return SplitCache(path_or_paths)
 
 
-def part_years(years, n_channels: int, setting="auto", budget_bytes: float = 17e9) -> list[list[int]]:
+def part_years(years, n_channels: int, setting="auto", budget_bytes: float = 18e9,
+               n_tb_extra: int = 0) -> list[list[int]]:
     """Split years into consecutive groups whose cache fits one Kaggle output (≤ ~17 GB)."""
     from wfsea.constants import N_LAT, N_LON
     years = [int(y) for y in years]
     if setting in (None, 0, "none"):
         return [years]
     if setting == "auto":
-        per_year = 1461 * N_LAT * N_LON * (2 * n_channels + 3)
+        per_year = 1461 * N_LAT * N_LON * (2 * n_channels + 3 + 2 * n_tb_extra)
         k = max(1, int(budget_bytes // per_year))
     else:
         k = int(setting)

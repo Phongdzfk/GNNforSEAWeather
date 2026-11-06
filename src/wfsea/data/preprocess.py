@@ -89,9 +89,23 @@ def tb_stats_streaming(years, raw_root=None, file_stride: int = 5) -> tuple[floa
     return float(mean), float(np.sqrt(max(ss / n - mean * mean, 1e-12))), int(n)
 
 
-def regrid_tb(tb: xr.DataArray, lats: np.ndarray, lons: np.ndarray, method: str = "box_mean") -> xr.DataArray:
-    """MERGIR 4 km → target 0.25° grid."""
+TB_SUBGRID = ("Tb_min", "Tb_std", "Tb_f235", "Tb_f208")   # extra per-cell features from the 4 km pixels
+TB_COLD = {"Tb_f235": 235.0, "Tb_f208": 208.0}            # deep convection / overshooting-top thresholds (K)
+
+
+def regrid_tb(tb: xr.DataArray, lats: np.ndarray, lons: np.ndarray, method: str = "box_mean",
+              subgrid: bool = False):
+    """MERGIR 4 km → target 0.25° grid.
+
+    subgrid=True (box_mean only) also returns, per 0.25° cell, statistics of the ~50 pixels inside it:
+    min Tb (coldest cloud top), std (texture), and the fraction of pixels colder than 235 K / 208 K
+    (deep convection). They keep the sub-grid convective structure that a plain mean averages away,
+    at 4 extra channels instead of storing the 4 km images (~50 GB for 12 years). Returns a Dataset
+    (Tb + TB_SUBGRID) in that case, else the mean as a DataArray.
+    """
     if method == "bilinear":
+        if subgrid:
+            raise ValueError("sub-grid Tb statistics need regrid=box_mean")
         return tb.interp(lat=lats, lon=lons, method="linear")
     if method != "box_mean":
         raise ValueError(method)
@@ -108,18 +122,36 @@ def regrid_tb(tb: xr.DataArray, lats: np.ndarray, lons: np.ndarray, method: str 
     flat = np.where(valid_pix, ii * len(lons) + jj, 0).ravel()
     n_cells = len(lats) * len(lons)
 
-    def _one(frame: np.ndarray) -> np.ndarray:
+    def _one(frame: np.ndarray):
         v = frame.ravel()
         good = valid_pix.ravel() & np.isfinite(v)
-        s = np.bincount(flat[good], weights=v[good], minlength=n_cells)
-        c = np.bincount(flat[good], minlength=n_cells)
-        out = np.full(n_cells, np.nan, dtype=np.float32)
-        np.divide(s, c, out=out, where=c > 0)
-        return out.reshape(len(lats), len(lons))
+        idx, vg = flat[good], v[good].astype(np.float64)
+        c = np.bincount(idx, minlength=n_cells)
+        s = np.bincount(idx, weights=vg, minlength=n_cells)
+        has = c > 0
+        mean = np.full(n_cells, np.nan, dtype=np.float32)
+        np.divide(s, c, out=mean, where=has)
+        if not subgrid:
+            return mean.reshape(len(lats), len(lons)), None
+        ss = np.bincount(idx, weights=vg * vg, minlength=n_cells)
+        var = np.where(has, ss / np.maximum(c, 1) - np.nan_to_num(mean.astype(np.float64)) ** 2, np.nan)
+        mn = np.full(n_cells, np.inf); np.minimum.at(mn, idx, vg)
+        ex = {"Tb_min": np.where(has, mn, np.nan), "Tb_std": np.sqrt(np.clip(var, 0, None))}
+        for k, thr in TB_COLD.items():
+            ex[k] = np.where(has, np.bincount(idx, weights=(vg < thr).astype(np.float64), minlength=n_cells)
+                             / np.maximum(c, 1), np.nan)
+        return mean.reshape(len(lats), len(lons)), {k: a.astype(np.float32).reshape(len(lats), len(lons))
+                                                     for k, a in ex.items()}
 
-    data = np.stack([_one(tb.isel(time=t).values) for t in range(tb.sizes["time"])])
-    return xr.DataArray(data, dims=("time", "lat", "lon"),
-                        coords={"time": tb.time.values, "lat": lats, "lon": lons}, name="Tb")
+    res = [_one(tb.isel(time=t).values) for t in range(tb.sizes["time"])]
+    coords = {"time": tb.time.values, "lat": lats, "lon": lons}
+    mean = xr.DataArray(np.stack([r[0] for r in res]), dims=("time", "lat", "lon"), coords=coords, name="Tb")
+    if not subgrid:
+        return mean
+    out = xr.Dataset({"Tb": mean})
+    for k in TB_SUBGRID:
+        out[k] = (("time", "lat", "lon"), np.stack([r[1][k] for r in res]))
+    return out
 
 
 def save_zarr(ds: xr.Dataset, path: str | Path, chunks=None) -> None:
@@ -133,7 +165,7 @@ def save_zarr(ds: xr.Dataset, path: str | Path, chunks=None) -> None:
 
 
 def normalized_year(year: int, stats, era5_root=None, nasa_root=None, regrid: str = "box_mean",
-                    schema: dict | None = None):
+                    schema: dict | None = None, tb_subgrid: bool = False):
     """Lazy normalised ERA5 dataset + eager normalised Tb on the ERA5 grid for one year (no files written)."""
     from wfsea.data.stats import tp_forward
     ds = open_era5_year(era5_root, year, schema=schema)
@@ -152,6 +184,15 @@ def normalized_year(year: int, stats, era5_root=None, nasa_root=None, regrid: st
     brain = xr.Dataset(norm)
     tb = open_nasa_year(nasa_root, year)["Tb"]
     tb = tb.sel(time=tb.time.isin(brain.time.values))     # on-the-hour slots only
+    if tb_subgrid:
+        r = regrid_tb(tb, brain.lat.values, brain.lon.values, regrid, subgrid=True)
+        eye = xr.Dataset({
+            "Tb": ((r["Tb"] - stats.tb_mean) / stats.tb_std).astype("float32"),
+            "Tb_min": ((r["Tb_min"] - stats.tb_mean) / stats.tb_std).astype("float32"),   # same scale as Tb
+            "Tb_std": (r["Tb_std"] / stats.tb_std).astype("float32"),
+            "Tb_f235": r["Tb_f235"].astype("float32"), "Tb_f208": r["Tb_f208"].astype("float32"),  # already 0..1
+        })
+        return brain, eye
     eye = regrid_tb(tb, brain.lat.values, brain.lon.values, regrid)
     eye = ((eye - stats.tb_mean) / stats.tb_std).astype("float32").to_dataset(name="Tb")
     return brain, eye

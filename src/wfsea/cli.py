@@ -39,7 +39,12 @@ def _cache_groups(cfg, split: str) -> list[list[int]]:
     years = cfg["data"][f"{split}_years"]
     if split != "train":
         return [list(years)]
-    return part_years(years, len(_channels(cfg)), cfg["data"].get("cache_part_years", "auto"))
+    return part_years(years, len(_channels(cfg)), cfg["data"].get("cache_part_years", "auto"),
+                      n_tb_extra=4 if _tb_subgrid(cfg) else 0)
+
+
+def _tb_subgrid(cfg) -> bool:
+    return cfg["data"]["zarr_layout"] == "raw" and bool(cfg["data"].get("tb_subgrid", False))
 
 
 def _cache_dir(cfg, split: str, years=None) -> Path:
@@ -62,7 +67,7 @@ def _raw_opts(cfg) -> dict | None:
                          f"data.pressure_vars / data.pressure_levels as this config.")
     return {"stats": stats, "era5_root": cfg["paths"].get("era5_raw_root"),
             "nasa_root": cfg["paths"].get("nasa_raw_root"), "regrid": cfg["data"].get("regrid", "box_mean"),
-            "schema": schema_from_config(cfg)}
+            "schema": schema_from_config(cfg), "tb_subgrid": _tb_subgrid(cfg)}
 
 
 def _ensure_cache(cfg, split: str, part: int | None = None) -> list[Path]:

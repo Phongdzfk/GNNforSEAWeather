@@ -38,6 +38,8 @@ data:
   tp_accum_hours: 6          # hourly downloads: tp = sum of the last 6 hourly values (rain in the past 6 h)
   cache_part_years: auto     # split the train cache into parts that fit one Kaggle output (≤ ~17 GB)
   regrid: box_mean           # MERGIR 4 km → 0.25°: box_mean (area average) | bilinear (what nb3 did)
+  tb_subgrid: true           # cache also stores per-cell 4 km Tb stats (min, std, frac<235K, frac<208K)
+                             # for the satellite fusion module (+4 fp16 channels, ~9% bigger cache)
   tb_file_stride: 5          # Tb stats: read every 5th MERGIR file (cycles the 4 synoptic hours)
   stats_time_stride: 5       # ERA5 stats: every 5th 6-h step (cycles 00/06/12/18; ~290 maps/year is plenty)
   # Precipitation transform applied BEFORE normalisation (raw layout only; recorded in the stats file):
