@@ -19,7 +19,7 @@ import argparse
 import json
 from pathlib import Path
 
-from wfsea.config import find_file, load_config, resolve_paths
+from wfsea.config import ON_KAGGLE, find_file, load_config, resolve_paths
 
 
 def _stats_dir(cfg) -> Path:
@@ -70,7 +70,7 @@ def _raw_opts(cfg) -> dict | None:
             "schema": schema_from_config(cfg), "tb_subgrid": _tb_subgrid(cfg)}
 
 
-def _ensure_cache(cfg, split: str, part: int | None = None) -> list[Path]:
+def _ensure_cache(cfg, split: str, part: int | None = None, build: bool = True) -> list[Path]:
     """Cache dir(s) of a split. Reuses caches attached as Kaggle input (outputs of 00b/00c), builds the rest.
     The train split may be several parts (each ≤ ~17 GB so it fits one Kaggle notebook output)."""
     from wfsea.config import ON_KAGGLE, find_dir
@@ -92,6 +92,9 @@ def _ensure_cache(cfg, split: str, part: int | None = None) -> list[Path]:
             print(f"[cache] using attached {found}")
             dirs.append(found)
             continue
+        if not build:
+            raise SystemExit(f"[cache] {target.name} not found in the inputs. Attach the output of the notebook "
+                             f"that built it (00b PART for {years[0]}–{years[-1]}) — it is NOT rebuilt here.")
         raw = raw if raw is not None else _raw_opts(cfg)
         dirs.append(materialize_split(years, target, cfg["paths"].get("zarr_root"), cfg["data"]["zarr_layout"],
                                       cfg["data"]["memmap_block"], raw=raw, channels=_channels(cfg)))
@@ -205,7 +208,7 @@ def main(argv=None):
 
     elif cmd == "manifest":
         from wfsea.data.manifest import build_manifest
-        caches = {s: _ensure_cache(cfg, s) for s in ("train", "val", "test")}
+        caches = {s: _ensure_cache(cfg, s, build=not (ON_KAGGLE and s == "train")) for s in ("train", "val", "test")}
         m = build_manifest(caches, out / "data_manifest.json", checksum=not args.no_checksum)
         for s, e in m["splits"].items():
             print(f"{s:5s} {e['time_start']} → {e['time_end']}  T={e['T']}  valid={e['n_valid_samples']}  gaps={len(e['gaps'])}")
@@ -214,7 +217,8 @@ def main(argv=None):
     elif cmd == "climatology":
         from wfsea.data.memmap import open_cache
         from wfsea.evaluation.baselines import compute_climatology, compute_diff_std, save_climatology
-        tr = open_cache(_ensure_cache(cfg, "train"))
+        tr = open_cache(_ensure_cache(cfg, "train", build=not ON_KAGGLE))
+        print(f"[climatology] train cache: {tr.T} steps from {len(_cache_groups(cfg, 'train'))} part(s)", flush=True)
         clim = compute_climatology(tr)
         save_climatology(clim, out / "climatology_train.npz", cfg["data"]["train_years"])
         print("saved", out / "climatology_train.npz", clim.shape)

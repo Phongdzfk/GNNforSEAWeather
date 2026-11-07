@@ -135,11 +135,22 @@ NOTEBOOKS = {
                  "(cần cho manifest, climatology, diff_stats). Accelerator: None.",
         "cells": [
             "CONFIG = 'configs/levels7.yaml'",
-            "!wfsea materialize --config {CONFIG} --split val paths.scratch=/kaggle/working",
+
+            "# Kiểm tra nhanh các cache đã có (3 phần 00b gắn làm input; chạy lại ô này ở cuối để xem cả val/test)\n"
+            "import json, glob\n"
+            "def review():\n"
+            "    for f in sorted(glob.glob('/kaggle/input/**/meta.json', recursive=True) + glob.glob('/kaggle/working/*/meta.json')):\n"
+            "        m = json.load(open(f)); nan = {k: v for k, v in m.get('nan_count', {}).items() if v}\n"
+            "        worst = sorted(m.get('fp16_relative_rmse', {}).items(), key=lambda kv: -kv[1])[:2]\n"
+            "        print(f\"{f.split('/')[-2]:28s} T={m['T']:5d} C={m['C']} {m['time_start'][:13]}→{m['time_end'][:13]} \"\n"
+            "              f\"gaps={len(m['gaps'])} Tb={m['tb_coverage']:.3f} sub={bool(m.get('tb_subgrid'))} \"\n"
+            "              f\"NaN→0: {sum(nan.values())} {dict(list(nan.items())[:3])} fp16 worst {worst}\")\n"
+            "review()",            "!wfsea materialize --config {CONFIG} --split val paths.scratch=/kaggle/working",
             "!wfsea materialize --config {CONFIG} --split test paths.scratch=/kaggle/working",
             "!wfsea manifest --config {CONFIG} paths.scratch=/kaggle/working",
             "!wfsea climatology --config {CONFIG} paths.scratch=/kaggle/working",
             "!wfsea graph --config {CONFIG} paths.scratch=/kaggle/working",
+            "review()\n"
             "import json; m = json.load(open('/kaggle/working/data_manifest.json'))\n"
             "for s, e in m['splits'].items():\n"
             "    print(s, e['time_start'], '→', e['time_end'], 'valid', e['n_valid_samples'], 'gaps', e['gaps'][:3])\n"
