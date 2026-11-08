@@ -46,12 +46,29 @@ def compute_climatology(train_cache: SplitCache, block: int = 200) -> np.ndarray
     return clim.astype(np.float32)
 
 
-def save_climatology(clim: np.ndarray, path: str | Path, years) -> None:
-    np.savez_compressed(path, clim=clim, years=np.array(years))
+def save_climatology(clim: np.ndarray, path: str | Path, years, channels=None) -> None:
+    extra = {"channels": np.array([f"{v}|{'' if l is None else l}" for v, l in channels])} if channels else {}
+    np.savez_compressed(path, clim=clim, years=np.array(years), **extra)
 
 
-def load_climatology(path: str | Path) -> np.ndarray:
-    return np.load(path)["clim"]
+def load_climatology(path: str | Path, channels=None) -> np.ndarray:
+    """(12, 4, G, C). With `channels`, picks those channels by name (e.g. B0's 14 of the 41 stored)."""
+    z = np.load(path)
+    clim = z["clim"]
+    if channels is None:
+        return clim
+    want = [f"{v}|{'' if l is None else l}" for v, l in channels]
+    if "channels" in z.files:
+        have = list(z["channels"])
+        if have == want:
+            return clim
+        missing = [w for w in want if w not in have]
+        if missing:
+            raise ValueError(f"climatology lacks channels {missing}")
+        return clim[..., [have.index(w) for w in want]]
+    if clim.shape[-1] != len(want):
+        raise ValueError(f"climatology has {clim.shape[-1]} channels (no names stored), need {len(want)}")
+    return clim
 
 
 class Climatology:

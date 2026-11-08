@@ -35,8 +35,8 @@ Trong lúc Phong chạy bước 0 (vài giờ CPU), Hiếu và Tùng có thể k
 | **0a** | Phong | `00a_stats` | `CONFIG='configs/levels7.yaml'` | mọi output dữ liệu thô (single levels cũ + D1–D4 + NASA) | CPU |
 | **0b** | Phong (×3) | `00b_cache_train` | `PART=0`, `1`, `2` | thô của các năm trong phần + output 0a | CPU, 3 notebook song song |
 | **0c** | Phong | `00c_cache_valtest` | — | thô 2025–2026 + output 0a + cả 3 phần 0b | CPU |
-| **B0** | Hiếu | `01_train_graphcast` | `CONFIG='configs/kaggle.yaml'` (14 kênh, đúng kiến trúc cũ) | dữ liệu | 1–2 phiên |
-| **v2** | Tùng | `01_train_graphcast` | `CONFIG='configs/v2_l7.yaml'` (41 kênh) | dữ liệu | 1–2 phiên |
+| **B0** | Hiếu | `01_train_graphcast` | `CONFIG='configs/kaggle.yaml'` (14 kênh, đúng kiến trúc cũ; tự đọc 14 kênh từ cache 41 kênh) | dữ liệu | 1–2 phiên |
+| **v2** | Tùng | `01_train_graphcast` | `CONFIG='configs/v2.yaml'` (41 kênh) | dữ liệu | 1–2 phiên |
 | **U** | Phong | `02_train_unet` | — | 3 dataset dữ liệu | 1–2 phiên |
 | **E1** | Tùng | `03_evaluate` | `CKPT='<run>/best.pt'`, `SPLIT='val'` — lần lượt B0, v2, unet_v2 | dữ liệu + output run | ~1 giờ/run |
 | **S1** | Hiếu | `01_train_graphcast` | `CONFIG='configs/v2_wide.yaml'` (mesh 256 chiều, ≈5,1M tham số) | dữ liệu | 1–2 phiên |
@@ -54,7 +54,7 @@ Trong lúc Phong chạy bước 0 (vài giờ CPU), Hiếu và Tùng có thể k
 | **F** | Tùng | `03_evaluate` | bản tốt nhất + B0 + unet_v2, `SPLIT='test'`, thêm ô `oracle` và `export-forecast` | dữ liệu + output các run | ~3 giờ |
 
 Ghi chú:
-- **Dữ liệu 41 kênh (7 tầng):** dùng `configs/levels7.yaml` cho các bước 0 và `configs/v2_l7.yaml` (hoặc thêm `EXTRA` tương ứng) cho các run train. B0 giữ 14 kênh để đúng là "kiến trúc + dữ liệu như dự án cũ". Nếu chưa tải xong tầng mới, mọi bước vẫn chạy được với 14 kênh cũ (`configs/kaggle.yaml`, `configs/v2.yaml`).
+- **Dữ liệu 41 kênh (7 tầng):** mọi config từ `v2.yaml` trở đi (v2, v2_wide, v2_wider, v3_*, v4, ablation A0–A5, U-Net) dùng 41 kênh; bước 0 dùng `configs/levels7.yaml`. Chỉ B0 (`kaggle.yaml`) giữ 14 kênh để đúng "kiến trúc + biến như dự án cũ" — nó đọc 14 kênh đó từ cache 41 kênh. **"dữ liệu"** trong bảng = output `00a` + 3 notebook `00b` + `00c`. Trên Kaggle, lệnh train/evaluate không bao giờ tự dựng cache: thiếu input là dừng ngay và báo thiếu gì.
 - Ước lượng dung lượng (41 kênh): tải thô ≈ 6 GB/năm; cache train ≈ 4 GB/năm → 3 phần; val ≈ 4 GB, test ≈ 3 GB.
 - RAM Kaggle (~30 GB): stats tính theo luồng (đỉnh vài trăm MB), cache ghi theo khối tự co theo số kênh (đỉnh ~2 GB), train đọc memmap theo mẫu — không bước nào nạp cả năm dữ liệu vào RAM.
 - "Phiên" = một lần chạy notebook (tối đa 12 giờ). Thời gian thật mỗi epoch xem trong `history.json` (`epoch_sec`) của run đầu tiên rồi chỉnh `train.epochs` cho vừa. Config Kaggle đã đặt `max_hours: 11.3`: gần hết giờ, model tự lưu `last.pt` và dừng sạch. Chạy tiếp bằng `RESUME='<run>/last.pt'` và gắn output phiên trước.

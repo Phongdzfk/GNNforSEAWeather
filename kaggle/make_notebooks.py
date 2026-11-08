@@ -159,11 +159,10 @@ NOTEBOOKS = {
     },
     "01_train_graphcast": {
         "title": "01 · Train (GNN) — đổi CONFIG để chạy run khác",
-        "intro": "Accelerator: **GPU T4 ×2**. Input: `wfsea-stats`, `wfsea-cache-train`, `wfsea-cache-valtest` "
-                 "(output của 00a/00b/00c) + output của run trước nếu fine-tune/resume.\n"
+        "intro": "Accelerator: **GPU T4 ×2**. **Input:** output của `00a` (stats), 3 notebook `00b` (cache train), `00c` (val/test + climatology + diff_stats) + output của run trước nếu fine-tune/resume. B0 (`kaggle.yaml`, 14 kênh) tự đọc 14 kênh từ cache 41 kênh — không dựng cache mới.\n"
                  "Danh sách run và người chạy: `project/RUN_PLAN.md`.",
         "cells": [
-            "CONFIG = 'configs/v2.yaml'      # 14 kênh: kaggle.yaml (B0) · v2 · v2_wide · v2_wider · v3_* · v4_boundary | 41 kênh: v2_l7.yaml\n"
+            "CONFIG = 'configs/v2.yaml'      # B0: kaggle.yaml (14 kênh, kiến trúc cũ) · 41 kênh: v2 · v2_wide · v2_wider · v3_* · v4_boundary\n"
             "EXTRA  = ''                     # ghi đè, ví dụ: 'run_name=abl_no_time features.time=false train.epochs=15'\n"
             "RESUME = ''                     # phiên trước hết 12 h? điền '<run_name>/last.pt' và gắn output phiên trước",
             "!nvidia-smi --query-gpu=name,memory.total --format=csv",

@@ -72,13 +72,16 @@ def _raw_opts(cfg) -> dict | None:
 
 def _ensure_cache(cfg, split: str, part: int | None = None, build: bool = True) -> list[Path]:
     """Cache dir(s) of a split. Reuses caches attached as Kaggle input (outputs of 00b/00c), builds the rest.
-    The train split may be several parts (each ≤ ~17 GB so it fits one Kaggle notebook output)."""
+    The train split may be several parts (each ≤ ~17 GB so it fits one Kaggle notebook output).
+    If no cache with exactly these channels exists but caches with MORE channels cover the same years
+    (B0's 14 channels vs the 41-channel caches), those are read through a channel subset."""
     from wfsea.config import ON_KAGGLE, find_dir
-    from wfsea.data.memmap import materialize_split
+    from wfsea.data.memmap import CacheDirs, materialize_split
+    want = [tuple(c) for c in _channels(cfg)]
     groups = _cache_groups(cfg, split)
     if part is not None:
         groups = [groups[part]]
-    dirs, raw = [], None
+    exact = []
     for years in groups:
         target = _cache_dir(cfg, split, years)
         found = None
@@ -88,17 +91,60 @@ def _ensure_cache(cfg, split: str, part: int | None = None, build: bool = True) 
                 found = d if (d / "meta.json").exists() else None
             except FileNotFoundError:
                 pass
+        elif (target / "meta.json").exists():
+            found = target
+        exact.append((years, target, found))
+    if all(f for _, _, f in exact):
+        for _, _, f in exact:
+            print(f"[cache] using {f}")
+        return CacheDirs([f for _, _, f in exact])
+    need_years = sorted(y for g in groups for y in g)
+    sup = _superset_caches(cfg, split, want, need_years)
+    if sup:
+        print(f"[cache] using {[str(d) for d in sup]} through a {len(want)}-channel subset")
+        return CacheDirs(sup, want)
+    dirs, raw = [], None
+    for years, target, found in exact:
         if found:
-            print(f"[cache] using attached {found}")
+            print(f"[cache] using {found}")
             dirs.append(found)
             continue
         if not build:
             raise SystemExit(f"[cache] {target.name} not found in the inputs. Attach the output of the notebook "
-                             f"that built it (00b PART for {years[0]}–{years[-1]}) — it is NOT rebuilt here.")
+                             f"that built it ({'00b' if split == 'train' else '00c'}, years {years[0]}–{years[-1]}) — it is NOT rebuilt here.")
         raw = raw if raw is not None else _raw_opts(cfg)
         dirs.append(materialize_split(years, target, cfg["paths"].get("zarr_root"), cfg["data"]["zarr_layout"],
                                       cfg["data"]["memmap_block"], raw=raw, channels=_channels(cfg)))
-    return dirs
+    return CacheDirs(dirs)
+
+
+def _superset_caches(cfg, split: str, want, years) -> list[Path] | None:
+    """Built/attached caches of this split + layout whose channels include `want` and whose years
+    (read from meta.json, whatever the part grouping) cover exactly `years`. Smallest channel set wins."""
+    import glob
+    from wfsea.config import ON_KAGGLE
+    pat = f"{split}_*_{cfg['data']['zarr_layout']}_c*"
+    roots = (["/kaggle/input/**"] if ON_KAGGLE else []) + [str(Path(cfg["paths"]["scratch"]))]
+    by_c: dict[int, dict[int, Path]] = {}
+    for root in roots:
+        for d in glob.glob(f"{root}/{pat}", recursive=True):
+            m = Path(d) / "meta.json"
+            if not m.exists():
+                continue
+            meta = json.loads(m.read_text())
+            ch = [tuple(c) for c in meta["channels"]]
+            if ch == want or not all(c in ch for c in want):
+                continue
+            for y in meta["years"]:
+                by_c.setdefault(len(ch), {}).setdefault(int(y), Path(d))
+    for n in sorted(by_c):
+        cover = by_c[n]
+        if all(y in cover for y in years):
+            dirs = sorted({cover[y] for y in years}, key=str)
+            got = sorted(y for d in dirs for y in json.loads((d / "meta.json").read_text())["years"])
+            if got == sorted(years):
+                return dirs
+    return None
 
 
 def _parse_years(text: str) -> list[int]:
@@ -136,7 +182,6 @@ def main(argv=None):
     cmd = args.command
 
     if cmd == "stats":
-        from wfsea.config import ON_KAGGLE
         from wfsea.constants import schema_from_config
         from wfsea.data.stats import compute_year_partials, merge_partials, save_stats
         train = [int(y) for y in cfg["data"]["train_years"]]
@@ -162,7 +207,6 @@ def main(argv=None):
             print(f"  Tb mean {st.tb_mean:.2f} K, std {st.tb_std:.2f} K | t2m mean {st.mean.get('t2m', float('nan')):.2f}")
 
     elif cmd in ("download-submit", "download-fetch", "download-gcs"):
-        from wfsea.config import ON_KAGGLE
         from wfsea.constants import schema_from_config
         from wfsea.data import download as dl
         sc = schema_from_config(cfg)
@@ -220,7 +264,7 @@ def main(argv=None):
         tr = open_cache(_ensure_cache(cfg, "train", build=not ON_KAGGLE))
         print(f"[climatology] train cache: {tr.T} steps from {len(_cache_groups(cfg, 'train'))} part(s)", flush=True)
         clim = compute_climatology(tr)
-        save_climatology(clim, out / "climatology_train.npz", cfg["data"]["train_years"])
+        save_climatology(clim, out / "climatology_train.npz", cfg["data"]["train_years"], tr.channels)
         print("saved", out / "climatology_train.npz", clim.shape)
         ds = compute_diff_std(tr)
         (out / "diff_stats.json").write_text(json.dumps(
@@ -238,7 +282,8 @@ def main(argv=None):
 
     elif cmd == "train":
         from wfsea.training.trainer import train
-        train(cfg, _ensure_cache(cfg, "train"), _ensure_cache(cfg, "val"))
+        # on Kaggle a GPU session must never spend hours building a cache → caches must be attached
+        train(cfg, _ensure_cache(cfg, "train", build=not ON_KAGGLE), _ensure_cache(cfg, "val", build=not ON_KAGGLE))
 
     elif cmd in ("evaluate", "export-forecast"):
         import torch
@@ -246,7 +291,7 @@ def main(argv=None):
         from wfsea.data.stats import load_stats
         from wfsea.models import ChannelAdapter, load_checkpoint
         split = cfg["eval"]["split"] if cmd == "evaluate" else args.split if args.split != "train" else "test"
-        cache = open_cache(_ensure_cache(cfg, split))
+        cache = open_cache(_ensure_cache(cfg, split, build=not ON_KAGGLE))
         stats = load_stats(_stats_dir(cfg)); stats.check_train_only(cfg["data"]["train_years"])
         device = "cuda" if torch.cuda.is_available() else "cpu"
         from wfsea.config import find_file as _ff
@@ -269,10 +314,17 @@ def main(argv=None):
                 except FileNotFoundError:
                     cp = out / "climatology_train.npz"
             if cp.exists():
-                clim = load_climatology(cp)
+                try:
+                    clim = load_climatology(cp, cache.channels)
+                except ValueError:
+                    base = getattr(cache, "base", None)      # old npz without names, cache = channel subset
+                    full = load_climatology(cp)
+                    if base is None or full.shape[-1] != base.C:
+                        raise
+                    clim = full[..., cache.idx]
             else:
                 clim = compute_climatology(open_cache(_ensure_cache(cfg, "train")))
-                save_climatology(clim, cp, cfg["data"]["train_years"])
+                save_climatology(clim, cp, cfg["data"]["train_years"], cache.channels)
             from wfsea.evaluation.runner import evaluate
             e = cfg["eval"]
             evaluate({mcfg.get("model", {}).get("name", "gnn"): model}, spec, cache, stats, clim,

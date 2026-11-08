@@ -72,15 +72,21 @@ def rollout_loss(net, batch, w_grid, device, amp, spectral_w=0.0, HW=None, chann
 def load_diff_std(cfg, train_cache: SplitCache) -> np.ndarray:
     from wfsea.config import find_file
     from wfsea.evaluation.baselines import compute_diff_std
-    for cand in (Path(cfg["paths"]["out"]) / "diff_stats.json",):
-        if cand.exists():
-            return np.asarray(json.loads(cand.read_text())["diff_std"], np.float32)
+    want = [tuple(c) for c in train_cache.channels]
+    cands = [Path(cfg["paths"]["out"]) / "diff_stats.json"]
     try:
-        d = json.loads(find_file("diff_stats.json").read_text())
-        if [tuple(c) for c in d["channels"]] == [tuple(c) for c in train_cache.channels]:
-            return np.asarray(d["diff_std"], np.float32)
+        cands.append(find_file("diff_stats.json"))
     except FileNotFoundError:
         pass
+    for cand in cands:
+        if not cand.exists():
+            continue
+        d = json.loads(cand.read_text())
+        have = [tuple(c) for c in d["channels"]]
+        if all(c in have for c in want):                    # exact, or a subset (B0 from 41 channels)
+            ds = np.asarray(d["diff_std"], np.float32)
+            print(f"[train] tendency std from {cand}")
+            return ds[[have.index(c) for c in want]]
     print("[train] diff_stats.json not found — computing tendency std from the train cache")
     return compute_diff_std(train_cache)
 

@@ -68,3 +68,39 @@ def test_resume_continues_training(cfg):
     main(["train", "--config", "smoke.yaml", *a, f"train.resume={run / 'last.pt'}"])
     hist = json.loads((run / "history.json").read_text())
     assert len(hist["val_loss"]) == 2          # epoch 1 from the first session + epoch 2 after resume
+
+
+def test_channel_subset_reads_bigger_cache(cfg, tmp_path):
+    """B0 (fewer channels) reads a cache built with more channels — no second cache."""
+    import json
+    import numpy as np
+    from wfsea.data.memmap import CacheDirs, ChannelSubset, open_cache
+    from wfsea.evaluation.baselines import compute_diff_std, load_climatology, save_climatology
+    from wfsea.cli import _ensure_cache
+    d = _ensure_cache(cfg, "train")[0]
+    full = open_cache(d)
+    want = [full.channels[3], full.channels[0]]
+    sub = open_cache(CacheDirs([d], want))
+    assert isinstance(sub, ChannelSubset) and sub.C == 2 and sub.channels == want
+    np.testing.assert_array_equal(sub.mm["state"][5], np.asarray(full.mm["state"][5])[:, [3, 0]])
+    np.testing.assert_array_equal(sub.mm["state"][2:4], np.asarray(full.mm["state"][2:4])[..., [3, 0]])
+    np.testing.assert_allclose(compute_diff_std(sub), compute_diff_std(full)[[3, 0]], rtol=1e-5)
+    clim = np.random.rand(12, 4, full.G, full.C).astype("f4")
+    save_climatology(clim, tmp_path / "c.npz", [2020], full.channels)
+    np.testing.assert_array_equal(load_climatology(tmp_path / "c.npz", want), clim[..., [3, 0]])
+    import pickle; assert pickle.loads(pickle.dumps(sub)).mm["state"].shape == (full.T, full.G, 2)
+
+
+def test_ensure_cache_falls_back_to_superset(cfg, monkeypatch):
+    import copy
+    import wfsea.cli as cli
+    from wfsea.data.memmap import ChannelSubset, open_cache
+    full = cli._ensure_cache(cfg, "train")
+    orig = cli._channels
+    monkeypatch.setattr(cli, "_channels", lambda c: list(orig(c))[:5] if c.get("_small") else orig(c))
+    small = copy.deepcopy(cfg); small["_small"] = True
+    small["data"]["cache_part_years"] = 1            # different part grouping than the stored cache
+    dirs = cli._ensure_cache(small, "train")
+    assert [str(d) for d in dirs] == [str(d) for d in full]           # reused, nothing built
+    c = open_cache(dirs)
+    assert isinstance(c, ChannelSubset) and c.channels == [tuple(x) for x in list(orig(cfg))[:5]]

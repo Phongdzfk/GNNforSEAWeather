@@ -2,6 +2,9 @@
 # Train from scratch on 2015–2024. Compare against the baseline (base.yaml) on the same eval.
 inherit: kaggle.yaml
 run_name: v2
+data:               # 41 channels: 7 levels × (z,t,q,u,v) + 6 surface — read from the levels7 caches
+  pressure_vars: [z, t, q, u, v]
+  pressure_levels: [1000, 925, 850, 700, 500, 300, 200]
 
 features:
   time: true        # sin/cos hour-of-day, day-of-year  (diurnal cycle)
@@ -14,4 +17,5 @@ model:
   n_layers: 12      # processor runs on only 500 mesh nodes → depth is cheap
 
 train:
+  channel_weights: {t2m: 2.0, u10: 2.0, v10: 2.0}   # the thesis targets: near-surface T and wind
   loss_norm: delta  # ΔX normalised by tendency std (needs diff_stats.json from 00c, else computed)

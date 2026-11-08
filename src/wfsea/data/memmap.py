@@ -339,10 +339,71 @@ class MultiSplitCache(SplitCache):
         return self._mm
 
 
+class _ChanView:
+    """state[..., idx] on access — read a channel subset of a bigger cache without copying it."""
+
+    def __init__(self, arr, idx):
+        self.arr, self.idx = arr, np.asarray(idx)
+        self.shape = tuple(arr.shape[:-1]) + (len(self.idx),)
+
+    def __len__(self):
+        return self.shape[0]
+
+    def __getitem__(self, key):
+        return np.asarray(self.arr[key])[..., self.idx]
+
+    def __array__(self, dtype=None, copy=None):
+        a = self[0:self.shape[0]]
+        return a.astype(dtype) if dtype is not None else a
+
+
+class ChannelSubset(SplitCache):
+    """A cache seen through a subset of its channels (e.g. B0's 14 legacy channels read from the
+    41-channel cache, so no second 50 GB cache is needed)."""
+
+    def __init__(self, base: SplitCache, channels):
+        channels = [tuple(c) for c in channels]
+        missing = [c for c in channels if c not in base.channels]
+        if missing:
+            raise ValueError(f"cache {base.dir.name} lacks channels {missing}")
+        self.base = base
+        self.idx = [base.channels.index(c) for c in channels]
+        self.dir, self.T, self.G = base.dir, base.T, base.G
+        self.lats, self.lons, self.times, self.static = base.lats, base.lons, base.times, base.static
+        self.channels, self.C = channels, len(channels)
+        self.meta = dict(base.meta, C=self.C, channels=[list(c) for c in channels],
+                         subset_of=f"{base.dir.name} ({base.C} channels)")
+        for k in ("nan_count", "fp16_relative_rmse"):
+            if isinstance(base.meta.get(k), dict):
+                from wfsea.constants import channel_name
+                names = {channel_name(v, l) for v, l in channels}
+                self.meta[k] = {n: x for n, x in base.meta[k].items() if n in names}
+        self._mm = None
+
+    @property
+    def mm(self) -> dict:
+        if self._mm is None:
+            self._mm = dict(self.base.mm, state=_ChanView(self.base.mm["state"], self.idx))
+        return self._mm
+
+
+class CacheDirs(list):
+    """Cache dir list that remembers which channels the caller wants (if fewer than stored)."""
+
+    def __init__(self, dirs, channels=None):
+        super().__init__(dirs)
+        self.channels = [tuple(c) for c in channels] if channels else None
+
+
 def open_cache(path_or_paths) -> SplitCache:
+    want = getattr(path_or_paths, "channels", None)
     if isinstance(path_or_paths, (list, tuple)):
-        return SplitCache(path_or_paths[0]) if len(path_or_paths) == 1 else MultiSplitCache(path_or_paths)
-    return SplitCache(path_or_paths)
+        c = SplitCache(path_or_paths[0]) if len(path_or_paths) == 1 else MultiSplitCache(list(path_or_paths))
+    else:
+        c = SplitCache(path_or_paths)
+    if want and want != c.channels:
+        c = ChannelSubset(c, want)
+    return c
 
 
 def part_years(years, n_channels: int, setting="auto", budget_bytes: float = 18e9,
