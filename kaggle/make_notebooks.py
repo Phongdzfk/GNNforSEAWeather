@@ -37,6 +37,7 @@ if not os.path.isdir(DEST):
         raise RuntimeError(err)
     subprocess.run(["git", "-C", DEST, "remote", "set-url", "origin", f"https://github.com/{REPO}.git"])
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "-e", DEST], check=True)
+sys.path.insert(0, os.path.join(DEST, "src"))   # editable install is only seen by NEW processes; this kernel needs the path
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "zarr>=2.14"], check=False)
 os.chdir(DEST)
 COMMIT = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
