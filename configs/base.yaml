@@ -73,6 +73,7 @@ model:
   hidden: 128               # width on the grid (31,959 nodes) — expensive to widen
   mesh_hidden: null         # width on the mesh (500 nodes) — cheap; null = same as hidden
   n_layers: 4
+  fusion: concat            # satellite: concat (Tb columns in the input) | gated | xattn (models/fusion.py)
   unet_base: 48
   unet_depth: 3
 
@@ -87,6 +88,8 @@ train:
   multi_gpu: true            # DataParallel when >1 GPU (Kaggle T4 ×2)
   num_workers: 4
   prefetch: 4
+  sampler: random            # random | interleaved (same per-batch randomness, ~3× less disk reading)
+  block_len: 8               # interleaved: consecutive 6-h steps per stream (2 days)
   max_steps_per_epoch: null  # set small for smoke tests
   # "state" = loss on the normalised state (legacy).  "delta" = loss on ΔX scaled by the
   # tendency std of each channel (GraphCast-style; every variable counts equally).

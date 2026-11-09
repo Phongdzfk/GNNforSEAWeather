@@ -104,3 +104,21 @@ def test_ensure_cache_falls_back_to_superset(cfg, monkeypatch):
     assert [str(d) for d in dirs] == [str(d) for d in full]           # reused, nothing built
     c = open_cache(dirs)
     assert isinstance(c, ChannelSubset) and c.channels == [tuple(x) for x in list(orig(cfg))[:5]]
+
+
+def test_train_with_interleaved_sampler(cfg):
+    a = _args(cfg) + ["run_name=interleaved_test", "train.epochs=1", "train.sampler=interleaved", "train.block_len=4"]
+    main(["train", "--config", "smoke.yaml", *a])
+    hist = json.loads((Path(cfg["paths"]["out"]) / "interleaved_test" / "history.json").read_text())
+    assert len(hist["val_loss"]) == 1 and "data_wait_sec" in hist
+
+
+def test_fusion_train_and_evaluate(cfg):
+    """xattn fusion: trains, saves, reloads from the checkpoint and evaluates."""
+    a = _args(cfg) + ["run_name=xattn_test", "train.epochs=1", "model.fusion=xattn", "model.fusion_window=3",
+                      "model.eye_hidden=8", "model.fusion_dim=16", "features.time=true", "features.solar=true"]
+    main(["train", "--config", "smoke.yaml", *a])
+    run = Path(cfg["paths"]["out"]) / "xattn_test"
+    main(["evaluate", "--config", "smoke.yaml", "--ckpt", str(run / "best.pt"), *a])
+    df = pd.read_csv(run / "eval_persist" / "metrics_raw.csv")
+    assert np.isfinite(df.rmse).all() and "graphcast" in set(df.model)   # (raw ACC is NaN for empty regions)

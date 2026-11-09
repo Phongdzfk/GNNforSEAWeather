@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 from wfsea.data.features import ForcingBuilder, InputSpec
 from wfsea.data.memmap import SplitCache
@@ -44,3 +44,40 @@ class WeatherDataset(Dataset):
         forcing = torch.from_numpy(np.stack([self.forcing(t, k) for k in range(self.n_steps)]))
         target = torch.from_numpy(st[t + 1:t + 1 + self.n_steps].astype(np.float32))
         return dyn_t, dyn_tm1, forcing, target
+
+
+class InterleavedBlockSampler(Sampler):
+    """Random order that is cheap to read from a memmap on a slow disk.
+
+    Valid starts are cut into blocks of `block_len` consecutive 6-h steps; blocks are shuffled and
+    taken `batch_size` at a time; batch j of a group holds step j of each of its blocks. So every batch
+    still has `batch_size` independent random times, but the next batch needs only ONE new state per
+    sample (X(t-1), X(t) were read for the previous batch and sit in the OS page cache) → ~3× fewer
+    bytes, read sequentially. Every start is used exactly once per epoch. Use with shuffle=False and the
+    same batch_size; call set_epoch(e) for a new order each epoch.
+    """
+
+    def __init__(self, n: int, batch_size: int, block_len: int = 8, seed: int = 0):
+        self.n, self.B, self.L, self.seed, self.epoch = int(n), int(batch_size), int(block_len), int(seed), 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
+
+    def order(self) -> np.ndarray:
+        rng = np.random.default_rng(self.seed + 1000003 * self.epoch)
+        off = int(rng.integers(self.L))                      # vary block boundaries between epochs
+        cuts = list(range(off, self.n, self.L)) if off else list(range(self.L, self.n, self.L))
+        blocks = np.split(np.arange(self.n), cuts)
+        blocks = [blocks[i] for i in rng.permutation(len(blocks))]
+        out = []
+        for g in range(0, len(blocks), self.B):
+            grp = blocks[g:g + self.B]
+            for j in range(max(len(b) for b in grp)):
+                out.extend(int(b[j]) for b in grp if j < len(b))
+        return np.asarray(out)
+
+    def __iter__(self):
+        return iter(self.order().tolist())
+
+    def __len__(self) -> int:
+        return self.n

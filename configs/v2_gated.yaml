@@ -1,0 +1,6 @@
+# Satellite fusion, gated (models/fusion.py): separate Eye CNN, the atmospheric state gates how much enters.
+inherit: v2_sub.yaml
+run_name: v2_gated
+model:
+  fusion: gated
+  eye_hidden: 32

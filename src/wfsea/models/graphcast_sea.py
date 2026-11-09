@@ -54,7 +54,9 @@ class GNNLayer(nn.Module):
 
 class GraphCastSEA(nn.Module):
     def __init__(self, n_in: int, n_out: int, graph: Graph, hidden: int = 128, n_layers: int = 4,
-                 delta_scale=None, mesh_hidden: int | None = None):
+                 delta_scale=None, mesh_hidden: int | None = None, fusion: str | None = None,
+                 sat_slice: slice | None = None, grid_shape: tuple[int, int] | None = None,
+                 fusion_kw: dict | None = None):
         """hidden = width on the 31,959-node grid (expensive: 127,836 grid↔mesh edges);
         mesh_hidden = width on the 500 mesh nodes (cheap). Widening the mesh relieves the
         grid→mesh bottleneck at little cost. mesh_hidden=None → same as hidden (legacy)."""
@@ -77,6 +79,17 @@ class GraphCastSEA(nn.Module):
 
         e_g, e_m = graph.g2m_attr.shape[1], graph.m2m_attr.shape[1]
         hg, hm = hidden, mesh_hidden or hidden
+        # Satellite fusion (models/fusion.py): satellite columns leave the grid encoder input and
+        # enter through a separate Eye branch fused after the encoder. fusion None/"concat" = legacy.
+        self.fusion = None
+        if fusion not in (None, "concat"):
+            from wfsea.models.fusion import SatelliteFusion
+            if sat_slice is None or sat_slice.stop <= sat_slice.start or grid_shape is None:
+                raise ValueError("satellite fusion needs features.satellite=true and the grid shape")
+            self.sat_start, self.sat_stop = int(sat_slice.start), int(sat_slice.stop)
+            n_in = n_in - (self.sat_stop - self.sat_start)
+            self.fusion = SatelliteFusion(self.sat_stop - self.sat_start, hidden, grid_shape, fusion,
+                                          **(fusion_kw or {}))
         self.grid_encoder = MLP(n_in, hg)
         self.mesh_encoder = MLP(4, hm)
         self.g2m_mlp = MLP(hg + hm + e_g, hm)          # grid → mesh message, in mesh width
@@ -90,7 +103,12 @@ class GraphCastSEA(nn.Module):
         """x_grid (B, G, n_in) → next state (B, G, n_out) = X(t) + ΔX."""
         B = x_grid.size(0)
         base = x_grid[..., : self.n_out]
-        h_grid = self.grid_encoder(x_grid)
+        if self.fusion is None:
+            h_grid = self.grid_encoder(x_grid)
+        else:
+            sat = x_grid[..., self.sat_start:self.sat_stop]
+            brain = torch.cat([x_grid[..., :self.sat_start], x_grid[..., self.sat_stop:]], dim=-1)
+            h_grid = self.fusion(self.grid_encoder(brain), sat)
         h_mesh = self.mesh_encoder(self.mesh_static).unsqueeze(0).expand(B, -1, -1)
 
         ea = self.g2m_ea.unsqueeze(0).expand(B, -1, -1).to(h_grid.dtype)

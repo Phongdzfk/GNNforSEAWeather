@@ -1,0 +1,6 @@
+# v2 + the 4 sub-grid Tb statistics (min, std, frac<235 K, frac<208 K) per lag, still plain concatenation.
+# Same satellite information as the fusion runs → isolates "more satellite info" from "better fusion".
+inherit: v2.yaml
+run_name: v2_sub
+features:
+  tb_subgrid: true

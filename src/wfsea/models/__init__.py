@@ -10,14 +10,23 @@ from wfsea.models.graphcast_sea import GraphCastSEA
 from wfsea.models.unet import UNetSEA
 
 
-def build_model(cfg, n_in: int, n_out: int, graph=None, grid_shape=None, delta_scale=None) -> torch.nn.Module:
+def build_model(cfg, n_in: int, n_out: int, graph=None, grid_shape=None, delta_scale=None,
+                spec=None) -> torch.nn.Module:
     m = cfg.get("model", {})
     name = m.get("name", "graphcast")
     if name == "graphcast":
         if graph is None:
             raise ValueError("graphcast needs a graph")
+        fusion = m.get("fusion") or "concat"
+        kw = {}
+        if fusion != "concat":
+            if spec is None:
+                raise ValueError("model.fusion needs the input spec (satellite columns)")
+            kw = dict(fusion=fusion, sat_slice=spec.satellite_slice(), grid_shape=tuple(grid_shape),
+                      fusion_kw=dict(eye_hidden=m.get("eye_hidden", 32), window=m.get("fusion_window", 5),
+                                     heads=m.get("fusion_heads", 4), attn_dim=m.get("fusion_dim", 64)))
         return GraphCastSEA(n_in, n_out, graph, hidden=m.get("hidden", 128), n_layers=m.get("n_layers", 4),
-                            delta_scale=delta_scale, mesh_hidden=m.get("mesh_hidden"))
+                            delta_scale=delta_scale, mesh_hidden=m.get("mesh_hidden"), **kw)
     if name == "unet":
         H, W = grid_shape
         return UNetSEA(n_in, n_out, H, W, base=m.get("unet_base", 48), depth=m.get("unet_depth", 3),
@@ -83,7 +92,7 @@ def load_checkpoint(path, cfg=None, grid_lats=None, grid_lons=None, map_location
     lats = grid_lats if grid_lats is not None else ck.get("grid_lats")
     lons = grid_lons if grid_lons is not None else ck.get("grid_lons")
     graph = build_graph_from_config(cfg, lats, lons) if cfg.get("model", {}).get("name", "graphcast") == "graphcast" else None
-    model = build_model(cfg, spec.n_in, spec.n_dyn, graph, (len(lats), len(lons)))
+    model = build_model(cfg, spec.n_in, spec.n_dyn, graph, (len(lats), len(lons)), spec=spec)
     missing, unexpected = model.load_state_dict(ck["model_state"], strict=False)
     missing = [k for k in missing if k != "delta_scale"]   # legacy checkpoints: delta_scale = 1
     if missing or unexpected:

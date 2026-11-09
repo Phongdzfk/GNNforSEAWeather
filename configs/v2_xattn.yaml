@@ -1,0 +1,10 @@
+# Satellite fusion, local cross-attention (advisor's Proposal 4, Eye–Brain): each cell's state attends
+# over the 5×5 neighbouring eye features (1.25° × 1.25°) with a learned relative-position bias.
+inherit: v2_sub.yaml
+run_name: v2_xattn
+model:
+  fusion: xattn
+  eye_hidden: 32
+  fusion_window: 5
+  fusion_heads: 4
+  fusion_dim: 64

@@ -79,3 +79,19 @@ def test_v2_then_rollout_finetune_then_boundary_eval(cfg):
     assert meta["boundary_forcing"].startswith("ERA5")
     df = pd.read_csv(ev / "metrics_raw.csv")
     assert np.isfinite(df.rmse).all() and df[df.channel == "tp"].rmse.max() < 0.05   # physical metres
+
+
+def test_interleaved_sampler_covers_all_and_streams():
+    import numpy as np
+    from wfsea.data.dataset import InterleavedBlockSampler
+    s = InterleavedBlockSampler(103, batch_size=4, block_len=8, seed=1)
+    for e in (0, 1):
+        s.set_epoch(e)
+        o = s.order()
+        assert sorted(o.tolist()) == list(range(103))               # each start exactly once
+    o = s.order()
+    b = o[:len(o) // 4 * 4].reshape(-1, 4)
+    assert len(set(b[0])) == 4                                      # a batch = 4 different streams
+    assert (np.abs(np.diff(b[0])) > 1).any()                        # ... not 4 consecutive times
+    assert (b[1] - b[0] == 1).mean() >= 0.75                        # next batch = next step of the same streams
+    s.set_epoch(2); assert not np.array_equal(s.order(), o)         # new order each epoch

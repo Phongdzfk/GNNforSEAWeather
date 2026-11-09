@@ -92,9 +92,16 @@ def load_diff_std(cfg, train_cache: SplitCache) -> np.ndarray:
 
 
 def make_loader(ds, cfg, shuffle: bool) -> DataLoader:
+    """train.sampler: 'random' (i.i.d. shuffle) or 'interleaved' (same randomness per batch, ~3× less
+    disk reading — see InterleavedBlockSampler). Validation is read in time order (already cache-friendly)."""
     t = cfg["train"]
-    kw = dict(batch_size=t["batch_size"], shuffle=shuffle, num_workers=t["num_workers"],
-              pin_memory=torch.cuda.is_available(), drop_last=shuffle)
+    sampler = None
+    if shuffle and t.get("sampler", "random") == "interleaved":
+        from wfsea.data.dataset import InterleavedBlockSampler
+        sampler = InterleavedBlockSampler(len(ds), t["batch_size"], int(t.get("block_len", 8)), cfg["seed"])
+        shuffle = False
+    kw = dict(batch_size=t["batch_size"], shuffle=shuffle, sampler=sampler, num_workers=t["num_workers"],
+              pin_memory=torch.cuda.is_available(), drop_last=sampler is not None or shuffle)
     if t["num_workers"] > 0:
         kw.update(persistent_workers=True, prefetch_factor=t["prefetch"])
     return DataLoader(ds, **kw)
@@ -131,7 +138,7 @@ def train(cfg: Config, train_cache: str | Path, val_cache: str | Path) -> Path:
             cw[names.index(name)] *= float(wgt)
         channel_w = torch.from_numpy(cw / cw.mean()).to(device)
     model = build_model(cfg, spec.n_in, spec.n_dyn, graph, (len(tr_cache.lats), len(tr_cache.lons)),
-                        delta_scale=delta_scale).to(device)
+                        delta_scale=delta_scale, spec=spec).to(device)
     if t.get("init_from"):     # e.g. rollout fine-tuning starts from the single-step best.pt
         from wfsea.config import find_file
         src = Path(t["init_from"]) if Path(t["init_from"]).exists() else find_file(t["init_from"])
@@ -186,8 +193,12 @@ def train(cfg: Config, train_cache: str | Path, val_cache: str | Path) -> Path:
     deadline = time.time() + 3600 * float(t["max_hours"]) if t.get("max_hours") else None
     for epoch in range(start_epoch, t["epochs"] + 1):
         t0 = time.time()
+        if hasattr(dl_tr.sampler, "set_epoch"):
+            dl_tr.sampler.set_epoch(epoch)
         net.train(); losses = []
+        t_wait, t_mark = 0.0, time.time()
         for i, batch in enumerate(dl_tr):
+            t_wait += time.time() - t_mark                  # time spent waiting for the data loader
             if max_steps is not None and i >= max_steps:
                 break
             opt.zero_grad(set_to_none=True)
@@ -197,6 +208,8 @@ def train(cfg: Config, train_cache: str | Path, val_cache: str | Path) -> Path:
             torch.nn.utils.clip_grad_norm_(model.parameters(), t["grad_clip"])
             scaler.step(opt); scaler.update()
             losses.append(loss.item())
+            t_mark = time.time()
+        t_train = time.time() - t0
         net.eval(); vl = []
         with torch.no_grad():
             for i, batch in enumerate(dl_va):
@@ -206,10 +219,12 @@ def train(cfg: Config, train_cache: str | Path, val_cache: str | Path) -> Path:
         tr_l, va_l = float(np.mean(losses)), float(np.mean(vl))
         lr_now = sched.get_last_lr()[0]; sched.step()
         sec = time.time() - t0
-        for k, v in (("train_loss", tr_l), ("val_loss", va_l), ("lr", lr_now), ("epoch_sec", sec)):
-            hist[k].append(v)
+        for k, v in (("train_loss", tr_l), ("val_loss", va_l), ("lr", lr_now), ("epoch_sec", sec),
+                     ("data_wait_sec", t_wait), ("train_sec", t_train)):
+            hist.setdefault(k, []).append(v)
         print(f"Epoch {epoch:3d} | train {tr_l:.4f} | val {va_l:.4f} (persist {persist_val:.4f} "
-              f"{'✓' if va_l < persist_val else '✗'}) | lr {lr_now:.2e} | {sec:.0f}s")
+              f"{'✓' if va_l < persist_val else '✗'}) | lr {lr_now:.2e} | {sec:.0f}s "
+              f"(train {t_train:.0f}s, waiting for data {t_wait:.0f}s = {100 * t_wait / max(t_train, 1e-9):.0f}%)")
         if va_l < best:
             best, bad = va_l, 0
             save_checkpoint(ckpt, model, cfg, spec, tr_cache.channels,

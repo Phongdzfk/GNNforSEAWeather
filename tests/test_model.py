@@ -108,3 +108,52 @@ def test_mesh_hidden_widens_only_mesh_side():
     m = GraphCastSEA(38, 14, tg, hidden=16, n_layers=2, mesh_hidden=48)
     x = torch.randn(2, len(lats) * len(lons), 38)
     torch.testing.assert_close(m(x), x[..., :14])
+
+
+def test_satellite_fusion_modes():
+    import numpy as np, torch
+    from wfsea.data.features import InputSpec
+    from wfsea.graph.mesh import build_graph
+    from wfsea.models import build_model, count_params
+    lats = np.arange(3.0, -0.01, -0.25); lons = np.arange(100.0, 103.01, 0.25)
+    g = build_graph(lats, lons, mesh_res=1.0, mesh_lat_start=0.0, mesh_lat_stop=3.5, mesh_lon_start=100.0,
+                    mesh_lon_stop=103.5, edge_features="geo")
+    spec = InputSpec(n_dyn=5, n_static=2, time=True, solar=True, tb_subgrid=True)
+    G = len(lats) * len(lons)
+    sl = spec.satellite_slice()
+    x = torch.randn(2, G, spec.n_in)
+    sizes = {}
+    for mode in ("concat", "gated", "xattn"):
+        cfg = {"model": {"name": "graphcast", "hidden": 16, "n_layers": 2, "fusion": mode, "eye_hidden": 8,
+                         "fusion_window": 3, "fusion_heads": 2, "fusion_dim": 8}}
+        torch.manual_seed(0)
+        m = build_model(cfg, spec.n_in, 5, g, (len(lats), len(lons)), spec=spec)
+        torch.nn.init.normal_(m.decoder.weight, std=0.1)          # make outputs depend on the input
+        y = m(x)
+        assert y.shape == (2, G, 5) and torch.isfinite(y).all()
+        sizes[mode] = count_params(m)
+        if mode != "concat":
+            x2 = x.clone(); x2[..., sl] += 5.0
+            assert torch.allclose(m(x2), y, atol=1e-5)            # fusion starts closed: satellite ignored
+            y.sum().backward()
+            eye = m.fusion.eye.net[0].weight.grad
+            out = (m.fusion.proj if mode == "gated" else m.fusion.o).weight.grad
+            assert out is not None and out.abs().sum() > 0         # ... but it can learn to open
+            assert eye is not None                                 # eye is in the graph
+    assert sizes["gated"] > sizes["concat"] and sizes["xattn"] > sizes["concat"]
+
+
+def test_xattn_ignores_padding_and_uses_neighbours():
+    import torch
+    from wfsea.models.fusion import SatelliteFusion
+    torch.manual_seed(0)
+    f = SatelliteFusion(n_sat=2, hidden=8, grid_shape=(16, 16), mode="xattn", eye_hidden=4, window=3, heads=2, attn_dim=8)
+    torch.nn.init.normal_(f.o.weight, std=0.5)
+    h = torch.randn(1, 256, 8); sat = torch.zeros(1, 256, 2)
+    base = f(h, sat)
+    sat2 = sat.clone(); sat2[0, 8 * 16 + 8] = 10.0                # a cloud in cell (8,8)
+    d = (f(h, sat2) - base).abs().sum(-1).view(16, 16)
+    # reach = eye CNN receptive field (radius 4) + attention window (radius 1) = 5 cells
+    assert d[8, 8] > 0 and d[5, 5] > 0 and d[13, 8] > 0
+    assert d[0, 0] == 0 and d[8, 15] == 0 and d[2, 8] == 0
+    assert torch.isfinite(f(h, sat2)).all()                       # edge cells (padding masked) are fine
