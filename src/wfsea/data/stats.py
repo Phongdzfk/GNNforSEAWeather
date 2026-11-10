@@ -29,8 +29,16 @@ def tp_forward(tp, kind: str | None):
     return tp
 
 
+TP_MAX_M = 0.3      # cap for a 6-h accumulation (300 mm, above any ERA5 value in the region)
+
+
 def tp_inverse(y, kind: str | None):
-    return np.expm1(np.maximum(y, 0)) * TP_SCALE if kind == "log1p" else y
+    """log1p space → metres. The log value is clipped to [0, log1p(TP_MAX_M / TP_SCALE)]: expm1 grows
+    exponentially, so one out-of-range model output (rare, mostly at the first step) would otherwise
+    become metres of rain in a single cell and dominate the RMSE of a whole forecast."""
+    if kind != "log1p":
+        return y
+    return np.expm1(np.clip(y, 0, np.log1p(TP_MAX_M / TP_SCALE))) * TP_SCALE
 
 
 @dataclass

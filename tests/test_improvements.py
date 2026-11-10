@@ -95,3 +95,13 @@ def test_interleaved_sampler_covers_all_and_streams():
     assert (np.abs(np.diff(b[0])) > 1).any()                        # ... not 4 consecutive times
     assert (b[1] - b[0] == 1).mean() >= 0.75                        # next batch = next step of the same streams
     s.set_epoch(2); assert not np.array_equal(s.order(), o)         # new order each epoch
+
+
+def test_tp_inverse_is_capped():
+    import numpy as np
+    from wfsea.data.stats import TP_MAX_M, tp_forward, tp_inverse
+    x = np.array([0.0, 0.001, 0.05, 0.2])
+    np.testing.assert_allclose(tp_inverse(tp_forward(x, "log1p"), "log1p"), x, rtol=1e-6, atol=1e-9)
+    assert tp_inverse(np.array([50.0]), "log1p")[0] == np.float64(TP_MAX_M) or \
+        abs(tp_inverse(np.array([50.0]), "log1p")[0] - TP_MAX_M) < 1e-9          # no exp blow-up
+    assert tp_inverse(np.array([-3.0]), "log1p")[0] == 0
