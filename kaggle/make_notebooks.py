@@ -171,6 +171,7 @@ NOTEBOOKS = {
             "!wfsea train --config {CONFIG} {EXTRA} run_name=smoke train.epochs=1 train.max_steps_per_epoch=5",
             "from wfsea.config import load_config\n"
             "RUN = load_config(CONFIG, EXTRA.split())['run_name']\n"
+            "RESUME = globals().get('RESUME', '')       # may be missing if the first cell was edited\n"
             "res = f'train.resume={RESUME}' if RESUME else ''\n"
             "print('RUN =', RUN)\n"
             "!wfsea train --config {CONFIG} {EXTRA} {res}",
