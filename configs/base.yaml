@@ -89,6 +89,7 @@ train:
   num_workers: 4
   prefetch: 4
   sampler: random            # random | interleaved (same per-batch randomness, ~3× less disk reading)
+  sat_dropout: 0.0          # prob. of hiding ALL satellite input for a training sample (robust to missing Tb)
   block_len: 8               # interleaved: consecutive 6-h steps per stream (2 days)
   max_steps_per_epoch: null  # set small for smoke tests
   # "state" = loss on the normalised state (legacy).  "delta" = loss on ΔX scaled by the

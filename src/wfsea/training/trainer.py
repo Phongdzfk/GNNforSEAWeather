@@ -120,7 +120,7 @@ def train(cfg: Config, train_cache: str | Path, val_cache: str | Path) -> Path:
     spec = InputSpec.from_config(cfg, n_dyn=tr_cache.C, n_static=tr_cache.static.shape[1])
     K = int(t.get("rollout_steps", 1))
     tb_policy = cfg["eval"].get("tb_policy", "persist")
-    ds_tr = WeatherDataset(tr_cache, spec, n_steps=K, tb_policy=tb_policy)
+    ds_tr = WeatherDataset(tr_cache, spec, n_steps=K, tb_policy=tb_policy, sat_dropout=t.get("sat_dropout", 0.0))
     ds_va = WeatherDataset(va_cache, spec, n_steps=K, tb_policy=tb_policy)   # validate on the same horizon
     dl_tr, dl_va = make_loader(ds_tr, cfg, True), make_loader(ds_va, cfg, False)
 

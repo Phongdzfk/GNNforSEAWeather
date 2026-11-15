@@ -25,13 +25,18 @@ def assemble_input(dyn_t: torch.Tensor, dyn_tm1: torch.Tensor, forcing: torch.Te
 
 class WeatherDataset(Dataset):
     def __init__(self, cache: SplitCache | str, spec: InputSpec | None = None, n_steps: int = 1,
-                 tb_policy: str = "persist", indices: np.ndarray | None = None):
+                 tb_policy: str = "persist", indices: np.ndarray | None = None, sat_dropout: float = 0.0):
         from wfsea.data.memmap import open_cache
         self.cache = cache if isinstance(cache, SplitCache) else open_cache(cache)
         self.spec = spec or InputSpec(n_dyn=self.cache.C, n_static=self.cache.static.shape[1])
         self.n_steps = n_steps
         self.forcing = ForcingBuilder(self.spec, self.cache, tb_policy)
         self.indices = self.cache.valid_starts(n_future=n_steps) if indices is None else np.asarray(indices)
+        # satellite dropout (training only): with prob p a sample gets NO satellite input (Tb, mask and
+        # sub-grid stats = 0, i.e. "not observed"). The model then also works when Tb is unavailable —
+        # which is the honest situation for every forecast step after the first (tb_policy=mask).
+        self.sat_dropout = float(sat_dropout)
+        self.n_sat = (4 + 8 * bool(self.spec.tb_subgrid)) * bool(self.spec.satellite)
 
     def __len__(self) -> int:
         return len(self.indices)
@@ -42,6 +47,8 @@ class WeatherDataset(Dataset):
         dyn_t = torch.from_numpy(st[t].astype(np.float32))
         dyn_tm1 = torch.from_numpy(st[t - 1].astype(np.float32))
         forcing = torch.from_numpy(np.stack([self.forcing(t, k) for k in range(self.n_steps)]))
+        if self.sat_dropout > 0 and self.n_sat and torch.rand(()) < self.sat_dropout:   # torch RNG: per-worker seeded
+            forcing[..., :self.n_sat] = 0.0
         target = torch.from_numpy(st[t + 1:t + 1 + self.n_steps].astype(np.float32))
         return dyn_t, dyn_tm1, forcing, target
 

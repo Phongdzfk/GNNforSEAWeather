@@ -105,3 +105,22 @@ def test_tp_inverse_is_capped():
     assert tp_inverse(np.array([50.0]), "log1p")[0] == np.float64(TP_MAX_M) or \
         abs(tp_inverse(np.array([50.0]), "log1p")[0] - TP_MAX_M) < 1e-9          # no exp blow-up
     assert tp_inverse(np.array([-3.0]), "log1p")[0] == 0
+
+
+def test_sat_dropout_hides_only_satellite(cfg):
+    import numpy as np, torch
+    from wfsea.cli import _ensure_cache
+    from wfsea.data.dataset import WeatherDataset
+    from wfsea.data.features import InputSpec
+    from wfsea.data.memmap import open_cache
+    c = open_cache(_ensure_cache(cfg, "train"))
+    spec = InputSpec(n_dyn=c.C, n_static=c.static.shape[1], time=True)
+    keep = WeatherDataset(c, spec)
+    drop = WeatherDataset(c, spec, sat_dropout=1.0)
+    _, _, fk, _ = keep[3]; _, _, fd, _ = drop[3]
+    assert drop.n_sat == 4 and fk[..., :4].abs().sum() > 0
+    assert (fd[..., :4] == 0).all() and torch.equal(fd[..., 4:], fk[..., 4:])
+    torch.manual_seed(0)
+    half = WeatherDataset(c, spec, sat_dropout=0.5)
+    hidden = [bool((half[i][2][..., :4] == 0).all()) for i in range(40)]
+    assert 8 < sum(hidden) < 32
