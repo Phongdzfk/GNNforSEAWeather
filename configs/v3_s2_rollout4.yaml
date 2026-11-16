@@ -1,0 +1,11 @@
+# Rollout fine-tune (same recipe as v3_rollout4) on the wide model S2 (v2_wider, 14.8M params).
+inherit: v2_wider.yaml
+run_name: v3_s2_rollout4
+train:
+  init_from: v2_wider/best.pt   # attach the S2 run output
+  rollout_steps: 4
+  grad_checkpoint: true
+  batch_size: 2
+  lr: 3.0e-5
+  epochs: 6
+  patience: 3

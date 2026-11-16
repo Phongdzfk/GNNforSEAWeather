@@ -1,0 +1,12 @@
+# Second rollout stage (72 h) on S2, from v3_s2_rollout4.
+inherit: v2_wider.yaml
+run_name: v3_s2_rollout12
+train:
+  init_from: v3_s2_rollout4/best.pt
+  rollout_steps: 12
+  grad_checkpoint: true
+  batch_size: 1
+  lr: 1.0e-5
+  epochs: 3
+  patience: 2
+  max_steps_per_epoch: 3000
