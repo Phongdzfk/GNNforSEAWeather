@@ -201,6 +201,12 @@ NOTEBOOKS = {
             "for f in sorted(glob.glob('/kaggle/working/*/eval_*/summary_rmse.csv')):\n"
             "    print(f); display(pd.read_csv(f).query(\"channel in ['t2m','u10','v10','msl','z500','q850','tp']\")"
             "[['model','channel','24','48','72']])",
+            "# ĐÁNH GIÁ CUỐI trên TEST 2026 (chạy đúng 1 lần, khi đã chốt model cuối). Cần Internet: On.\n"
+            "# Thêm benchmark ECMWF (AIFS = AI của ECMWF, IFS control = mô hình số trị) trên cùng các lần khởi đầu.\n"
+            "# !pip install -q \"dynamical-catalog>=0.8.0\"\n"
+            "# !wfsea evaluate --config configs/v2.yaml --ckpt v4_star/best.pt eval.split=test eval.n_starts=120 \"eval.external=[aifs,ifs_control]\" paths.scratch=/kaggle/tmp/c\n"
+            "# Các model còn lại: cùng lệnh, bỏ eval.external (cùng danh sách khởi đầu → so cặp được).\n"
+            "# Bảng cho luận văn: !python scripts/analyze_eval.py /kaggle/working /kaggle/working/tables --runs v4_star v3_star v2_star v2 graphcast_baseline unet_v2",
             "# Chỉ cho bản cuối: đối chiếu với cách đánh giá cũ (dùng vệ tinh tương lai) và xuất dự báo\n"
             "# !wfsea evaluate --config {CONFIG} --ckpt {CKPT} {EXTRA} eval.split=test eval.tb_policy=oracle paths.scratch=/kaggle/tmp/c\n"
             "# !wfsea export-forecast --config {CONFIG} --ckpt {CKPT} {EXTRA} --split test paths.scratch=/kaggle/tmp/c",

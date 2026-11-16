@@ -122,3 +122,34 @@ def test_fusion_train_and_evaluate(cfg):
     main(["evaluate", "--config", "smoke.yaml", "--ckpt", str(run / "best.pt"), *a])
     df = pd.read_csv(run / "eval_persist" / "metrics_raw.csv")
     assert np.isfinite(df.rmse).all() and "graphcast" in set(df.model)   # (raw ACC is NaN for empty regions)
+
+
+def test_evaluate_with_external(cfg, tmp_path):
+    """An external forecast (missing one channel, missing some starts) is scored on the same starts."""
+    import torch
+    from wfsea.cli import _ensure_cache
+    from wfsea.data.memmap import open_cache
+    from wfsea.data.stats import load_stats
+    from wfsea.data.features import InputSpec
+    from wfsea.evaluation.runner import evaluate
+    from wfsea.constants import channel_name
+    c = open_cache(_ensure_cache(cfg, "val"))
+    st = load_stats(cfg["paths"]["stats_dir"]) if cfg["paths"].get("stats_dir") else None
+    from wfsea.config import find_dir
+    names = [channel_name(v, l) for v, l in c.channels]
+
+    class Ext:
+        calls = 0
+        def __call__(self, t, n):
+            Ext.calls += 1
+            if Ext.calls % 2 == 0:
+                return None
+            i = int(np.searchsorted(c.times, t))
+            a = np.stack([st.denorm(c.mm["state"][i].astype(np.float32), c.channels)] * n)
+            a[..., names.index("tp")] = np.nan
+            return a
+    clim = np.zeros((12, 4, c.G, c.C), np.float32)
+    df = evaluate({}, InputSpec(n_dyn=c.C, n_static=2), c, st, clim, tmp_path / "ev", n_starts=4, n_steps=2,
+                  regions=("all",), externals={"ext": Ext()})
+    e = df[df.model == "ext"]
+    assert e.start.nunique() == 2 and e[e.channel == "tp"].rmse.isna().all() and e[e.channel != "tp"].rmse.notna().all()

@@ -327,11 +327,20 @@ def main(argv=None):
                 save_climatology(clim, cp, cfg["data"]["train_years"], cache.channels)
             from wfsea.evaluation.runner import evaluate
             e = cfg["eval"]
+            externals = {}
+            for name in e.get("external") or []:
+                from wfsea.constants import channel_name
+                from wfsea.evaluation.external import ExternalForecast
+                externals[name] = ExternalForecast(name, cache.lats, cache.lons,
+                                                   [channel_name(v, l) for v, l in cache.channels],
+                                                   cache_dir=Path(cfg["paths"]["scratch"]) / "external")
+                print(f"[eval] external benchmark: {name}", flush=True)
             evaluate({mcfg.get("model", {}).get("name", "gnn"): model}, spec, cache, stats, clim,
                      out / (mcfg.get("run_name") or cfg["run_name"]) / f"eval_{e['tb_policy']}", e["n_starts"], e["n_steps"], e["tb_policy"],
                      tuple(e["regions"]), device,
                      {"checkpoint": args.ckpt, "n_params": ck.get("n_params"), "git_commit": ck.get("git_commit"),
-                      "run_name": mcfg.get("run_name")}, bmask=bmask)
+                      "run_name": mcfg.get("run_name"), "external": list(externals)}, bmask=bmask,
+                     externals=externals)
         else:
             import numpy as np
             from wfsea.inference.export import export_forecast

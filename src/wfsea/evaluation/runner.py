@@ -28,8 +28,10 @@ from wfsea.evaluation.rollout import evenly_spaced_starts, rollout
 def evaluate(models: dict, spec, cache: SplitCache, stats, clim: np.ndarray, out_dir: str | Path,
              n_starts: int = 30, n_steps: int = 12, tb_policy: str = "persist",
              regions=("all", "land", "sea", "mountain", "plain"), device="cpu", extra_meta=None,
-             bmask: np.ndarray | None = None) -> pd.DataFrame:
-    """`models`: {"gnn": nn.Module, ...}. Persistence and climatology are always added."""
+             bmask: np.ndarray | None = None, externals: dict | None = None) -> pd.DataFrame:
+    """`models`: {"gnn": nn.Module, ...}. Persistence and climatology are always added.
+    `externals`: {"aifs": ExternalForecast, ...} — operational forecasts scored on the same starts
+    (channels they lack are NaN; starts they lack are skipped → compare them paired, per start)."""
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     channels = cache.channels
     names = [channel_name(v, l) for v, l in channels]
@@ -58,6 +60,14 @@ def evaluate(models: dict, spec, cache: SplitCache, stats, clim: np.ndarray, out
               "climatology": clim_seq}
         for name, m in models.items():
             fc[name] = phys(rollout(m, cache, spec, t0, n_steps, tb_policy, device, bmask))
+        for name, ext in (externals or {}).items():
+            try:
+                f = ext(cache.times[t0], n_steps)
+            except Exception as e:                      # network hiccup: skip this start for this source
+                print(f"[eval] {name} {str(cache.times[t0])[:16]}: {type(e).__name__}: {e}", flush=True)
+                f = None
+            if f is not None:
+                fc[name] = f
         for model_name, f in fc.items():
             for k in range(n_steps):
                 lead = (k + 1) * TIME_STEP_HOURS
@@ -69,7 +79,7 @@ def evaluate(models: dict, spec, cache: SplitCache, stats, clim: np.ndarray, out
                                      float(num[c]) if reg == "all" else np.nan,
                                      float(ff[c]) if reg == "all" else np.nan,
                                      float(oo[c]) if reg == "all" else np.nan))
-            if "t2m" in names and n_steps >= 8:
+            if "t2m" in names and n_steps >= 8 and np.isfinite(f[7][:, names.index("t2m")]).all():
                 c = names.index("t2m"); H, W = len(cache.lats), len(cache.lons)
                 spec_rows.setdefault(model_name, []).append(radial_spectrum(f[7][:, c].reshape(H, W)))
                 spec_rows.setdefault("truth", []).append(radial_spectrum(truth[7][:, c].reshape(H, W)))

@@ -26,6 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+benchmark = ["dynamical-catalog>=0.8.0"]   # ECMWF AIFS / IFS reference forecasts (evaluation/external.py)
 download = ["cdsapi>=0.7", "netCDF4>=1.6", "h5netcdf>=1.1", "requests>=2.31"]
 viz = ["matplotlib>=3.7"]
 dev = ["pytest>=7.4"]

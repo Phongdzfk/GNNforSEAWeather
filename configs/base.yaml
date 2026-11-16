@@ -119,3 +119,4 @@ eval:
   tb_policy: persist
   climatology: train_month_hour   # never the test-set mean
   regions: [all, land, sea, mountain, plain]
+  external: []               # operational benchmarks (needs internet + dynamical-catalog): [aifs, ifs_control]
