@@ -1,0 +1,11 @@
+# v3* stage 1 — rollout fine-tune (24 h) of v2*. Attach the v2_star output.
+inherit: v2_star.yaml
+run_name: v3_star_r4
+train:
+  init_from: v2_star/best.pt
+  rollout_steps: 4
+  grad_checkpoint: true
+  batch_size: 2
+  lr: 3.0e-5
+  epochs: 6
+  patience: 3

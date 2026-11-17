@@ -99,3 +99,15 @@ Mỗi ablation phải trả lời một câu hỏi mà luận văn hoặc hội 
 Đã bỏ A4 (loss theo trạng thái) và A5 (4 lớp): câu trả lời đã nằm trong B0 → v2 và S1/S2.
 Mọi run ngắn dùng chung `train.epochs=15 train.sampler=interleaved` nên so được với nhau (và với A0).
 `sampler=interleaved` đọc đĩa ít hơn ~3 lần; log mỗi epoch in `waiting for data …%` để biết nghẽn ở đâu.
+
+## Kết quả chọn cấu hình (val 2025, 120 lần khởi đầu, so cặp + bootstrap 95%)
+
+| Câu hỏi | Kết quả | Quyết định |
+|---|---|---|
+| Rollout | v3b (rollout 4→12) −19 % RMSE t2m/u10/v10 so với A0; 12 bước > 4 bước thêm −2,2 % ở 48–72 h | dùng 4 → 12 bước |
+| Cỡ model | S2 (14,8M) −4,7 % ở 6–24 h so với v2; sau rollout: S2+rollout −6,4 % (6 h) … −1,8 % (72 h) so với v3b | dùng cỡ S2 |
+| Vệ tinh | giá trị thật nhỏ (oracle: −1…−2 % ở ≤24 h); `persist` gây hại ở tầm xa (ảnh lỗi thời); `sat_dropout` 0.5 + `mask` hết gây hại; F1_sd −0,6 % [−1,3; 0,0] so với không vệ tinh, tốt nhất ở 24–48 h; F3_sd +0,5 % (kém F1_sd 1,4 %); F2 kém nhất | F1 (Tb + 4 thống kê dưới lưới, ghép kênh) + sat_dropout 0.5, đánh giá `mask` |
+| Thời gian/bức xạ (A1), cạnh graph (A3) | +1,5 % và +1,0 % khi bỏ, chưa có ý nghĩa thống kê ở 15 epoch | giữ (ghi là xu hướng) |
+| So với ECMWF (thử 8 lần khởi đầu) | AIFS tốt hơn rõ từ 24 h, nhất là z500/msl; ngang ở 6 h | so v3* với AIFS; v4* (biên ERA5) chỉ là cận trên |
+
+Chuỗi cuối: `v2_star.yaml` (50 epoch) → `v3_star_r4.yaml` → `v3_star_r12.yaml` → `v4_star.yaml` → đánh giá test 1 lần.

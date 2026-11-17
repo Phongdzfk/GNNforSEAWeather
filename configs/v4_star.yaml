@@ -1,0 +1,10 @@
+# v4* — v3* + lateral boundary forcing (2° ERA5 band, interior-only scores). "Perfect boundary":
+# an UPPER BOUND of what boundaries from a global forecast would give — report it as such, and compare
+# v3* (not v4*) with AIFS/IFS. Attach the v3_star_r12 output.
+inherit: v3_star_r12.yaml
+run_name: v4_star
+boundary:
+  width_deg: 2.0
+train:
+  init_from: v3_star_r12/best.pt
+  epochs: 3

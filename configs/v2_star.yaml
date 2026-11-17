@@ -1,0 +1,14 @@
+# v2* — the final architecture, chosen on val (see project/RUN_PLAN.md, "Kết quả chọn cấu hình"):
+#   size      S2: mesh 384, 16 layers (≈14.8M)      — −4.7 % RMSE at 6–24 h vs v2, 115/120 starts better
+#   satellite F1: Tb + 4 sub-grid Tb stats, concat — best of A2/A0/F1/F2/F3 under every Tb policy
+#   + satellite dropout 0.5                         — removes the long-lead harm when Tb is unavailable
+#   tb_policy mask: after the first step the forecast gets NO satellite (what exists operationally);
+#                   the rollout stages (v3*) train with the same policy.
+inherit: v2_wider.yaml
+run_name: v2_star
+features:
+  tb_subgrid: true
+train:
+  sat_dropout: 0.5
+eval:
+  tb_policy: mask
