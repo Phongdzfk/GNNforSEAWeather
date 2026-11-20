@@ -119,4 +119,5 @@ eval:
   tb_policy: persist
   climatology: train_month_hour   # never the test-set mean
   regions: [all, land, sea, mountain, plain]
+  score_interior_deg: 0       # >0: exclude this boundary band from scores (compare a model with v4 on v4's interior)
   external: []               # operational benchmarks (needs internet + dynamical-catalog): [aifs, ifs_control]

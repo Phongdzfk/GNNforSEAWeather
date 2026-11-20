@@ -28,7 +28,8 @@ from wfsea.evaluation.rollout import evenly_spaced_starts, rollout
 def evaluate(models: dict, spec, cache: SplitCache, stats, clim: np.ndarray, out_dir: str | Path,
              n_starts: int = 30, n_steps: int = 12, tb_policy: str = "persist",
              regions=("all", "land", "sea", "mountain", "plain"), device="cpu", extra_meta=None,
-             bmask: np.ndarray | None = None, externals: dict | None = None) -> pd.DataFrame:
+             bmask: np.ndarray | None = None, externals: dict | None = None,
+             score_mask: np.ndarray | None = None) -> pd.DataFrame:
     """`models`: {"gnn": nn.Module, ...}. Persistence and climatology are always added.
     `externals`: {"aifs": ExternalForecast, ...} — operational forecasts scored on the same starts
     (channels they lack are NaN; starts they lack are skipped → compare them paired, per start)."""
@@ -40,10 +41,13 @@ def evaluate(models: dict, spec, cache: SplitCache, stats, clim: np.ndarray, out
     w /= w.mean()
     static_phys = {v: cache.static[:, i] * stats.std[v] + stats.mean[v] for i, v in enumerate(cache.meta["static_vars"])}
     masks = {k: m for k, m in region_masks(static_phys).items() if k in regions}
-    if bmask is not None and bmask.any():
+    # bmask = band FORCED with ERA5 during the rollout (v4); score_mask = band EXCLUDED from scores.
+    # Scoring a non-boundary model on the same interior as v4 (score_mask only) keeps the comparison fair.
+    excl = score_mask if score_mask is not None else bmask
+    if excl is not None and excl.any():
         # Boundary band is forced with ERA5 → score every model on the interior only (fair comparison).
-        masks = {k: m & ~bmask for k, m in masks.items()}
-        w = w * (~bmask)
+        masks = {k: m & ~excl for k, m in masks.items()}
+        w = w * (~excl)
     clim_obj = Climatology(clim)
 
     starts = evenly_spaced_starts(cache.valid_starts(n_future=n_steps), n_starts)
@@ -102,7 +106,8 @@ def evaluate(models: dict, spec, cache: SplitCache, stats, clim: np.ndarray, out
     (out_dir / "eval_config.json").write_text(json.dumps({
         "n_starts": int(len(starts)), "n_steps": n_steps, "tb_policy": tb_policy,
         "climatology": "train split, month × hour", "regions": list(masks),
-        "boundary_forcing": "ERA5 band, interior-only scores" if bmask is not None and bmask.any() else "none",
+        "boundary_forcing": "ERA5 band" if bmask is not None and bmask.any() else "none",
+        "scored_area": "interior (boundary band excluded)" if excl is not None and excl.any() else "full domain",
         **(extra_meta or {})}, indent=2,
         default=str))
     return df

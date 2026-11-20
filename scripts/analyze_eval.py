@@ -1,8 +1,8 @@
 """Thesis tables from one or more evaluation folders (chapter 6).
 
 Usage:
-  python scripts/analyze_eval.py <results_dir> <out_dir> --runs v4_star v3_star v2 graphcast_baseline unet_v2 \
-         [--policy persist] [--ref v4_star]
+  python scripts/analyze_eval.py <results_dir> <out_dir> --runs v3_star_r12:mask v3_s2_rollout12 v2 graphcast_baseline unet_v2 \
+         [--policy persist] [--ref v3_star_r12]      (run:policy → <run>/eval_<policy>/, default --policy)
 
 <results_dir>/<run>/eval_<policy>/metrics_raw.csv are read; every run was evaluated on the same
 deterministic start list, so models are compared PER START (paired). Persistence, climatology and
@@ -33,8 +33,9 @@ EXTERNAL = ("aifs", "ifs_control")
 def load(results: Path, runs, policy):
     frames = []
     seen_base = set()
-    for r in runs:
-        f = results / r / f"eval_{policy}" / "metrics_raw.csv"
+    for spec in runs:
+        r, _, pol = spec.partition(":")            # "run:policy" picks eval_<policy>/, e.g. v3_star_r12:mask
+        f = results / r / f"eval_{pol or policy}" / "metrics_raw.csv"
         if not f.exists():
             print(f"[skip] {f} not found")
             continue
@@ -75,11 +76,12 @@ def main():
     ap.add_argument("results"); ap.add_argument("out")
     ap.add_argument("--runs", nargs="+", required=True)
     ap.add_argument("--policy", default="persist")
-    ap.add_argument("--ref", default=None, help="reference model for paired Δ% (default: first run)")
+    ap.add_argument("--ref", default=None, help="reference model for paired Δ%% (default: first run)")
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     d = load(Path(a.results), a.runs, a.policy)
     d["lead_h"] = d.lead_h.astype(int)
+    a.runs = [r.partition(":")[0] for r in a.runs]
     models = [m for m in a.runs if m in set(d.model)] + [m for m in BASE + EXTERNAL if m in set(d.model)]
     allr = d[d.region == "all"]
     rng = np.random.default_rng(0)

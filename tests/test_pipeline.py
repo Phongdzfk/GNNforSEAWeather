@@ -153,3 +153,18 @@ def test_evaluate_with_external(cfg, tmp_path):
                   regions=("all",), externals={"ext": Ext()})
     e = df[df.model == "ext"]
     assert e.start.nunique() == 2 and e[e.channel == "tp"].rmse.isna().all() and e[e.channel != "tp"].rmse.notna().all()
+
+
+def test_score_interior_only_without_forcing(cfg):
+    """eval.score_interior_deg excludes the band from SCORES but does not force it with ERA5."""
+    a = _args(cfg) + ["run_name=int_test", "train.epochs=1"]
+    main(["train", "--config", "smoke.yaml", *a])
+    run = Path(cfg["paths"]["out"]) / "int_test"
+    main(["evaluate", "--config", "smoke.yaml", "--ckpt", str(run / "best.pt"), *a])
+    main(["evaluate", "--config", "smoke.yaml", "--ckpt", str(run / "best.pt"), *a, "eval.score_interior_deg=1"])
+    full = json.loads((run / "eval_persist" / "eval_config.json").read_text())
+    intr = json.loads((run / "eval_persist_int1" / "eval_config.json").read_text())
+    assert full["scored_area"] == "full domain" and intr["scored_area"].startswith("interior")
+    assert full["boundary_forcing"] == intr["boundary_forcing"] == "none"
+    f = pd.read_csv(run / "eval_persist" / "summary_rmse.csv"); i = pd.read_csv(run / "eval_persist_int1" / "summary_rmse.csv")
+    assert not np.allclose(f.select_dtypes("number").values, i.select_dtypes("number").values)

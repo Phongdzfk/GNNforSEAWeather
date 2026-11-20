@@ -304,7 +304,10 @@ def main(argv=None):
             model = ChannelAdapter(model, channels, cache.channels)
         model = model.to(device)
         from wfsea.data.boundary import boundary_mask
-        bmask = boundary_mask(cache.lats, cache.lons, (mcfg.get("boundary") or {}).get("width_deg", 0) or 0)
+        bw = (mcfg.get("boundary") or {}).get("width_deg", 0) or 0
+        bmask = boundary_mask(cache.lats, cache.lons, bw)
+        sw = max(bw, float(cfg["eval"].get("score_interior_deg", 0) or 0))
+        score_mask = boundary_mask(cache.lats, cache.lons, sw) if sw > bw else None
         if cmd == "evaluate":
             from wfsea.evaluation.baselines import compute_climatology, load_climatology, save_climatology
             cp = out / "climatology_train.npz"
@@ -336,11 +339,12 @@ def main(argv=None):
                                                    cache_dir=Path(cfg["paths"]["scratch"]) / "external")
                 print(f"[eval] external benchmark: {name}", flush=True)
             evaluate({mcfg.get("model", {}).get("name", "gnn"): model}, spec, cache, stats, clim,
-                     out / (mcfg.get("run_name") or cfg["run_name"]) / f"eval_{e['tb_policy']}", e["n_starts"], e["n_steps"], e["tb_policy"],
+                     out / (mcfg.get("run_name") or cfg["run_name"]) / (f"eval_{e['tb_policy']}" + (f"_int{sw:g}" if score_mask is not None else "")),
+                     e["n_starts"], e["n_steps"], e["tb_policy"],
                      tuple(e["regions"]), device,
                      {"checkpoint": args.ckpt, "n_params": ck.get("n_params"), "git_commit": ck.get("git_commit"),
                       "run_name": mcfg.get("run_name"), "external": list(externals)}, bmask=bmask,
-                     externals=externals)
+                     externals=externals, score_mask=score_mask)
         else:
             import numpy as np
             from wfsea.inference.export import export_forecast
