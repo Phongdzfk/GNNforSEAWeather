@@ -173,6 +173,7 @@ def main(argv=None):
     ap.add_argument("--bench", action="store_true", help="download-gcs: only measure speed, write nothing")
     ap.add_argument("--single", action="store_true", help="download-gcs: single levels (u10,v10,d2m,t2m,msl,tp,z,lsm)")
     ap.add_argument("--no-checksum", action="store_true")
+    ap.add_argument("--n-runs", type=int, default=5, help="bench: timed 72 h forecasts (after 1 warm-up)")
     ap.add_argument("--legacy-levels", default="850,500",
                     help="pressure_level order inside the old Zarr files (only for old notebook checkpoints)")
     args, rest = ap.parse_known_args(argv)
@@ -285,7 +286,7 @@ def main(argv=None):
         # on Kaggle a GPU session must never spend hours building a cache → caches must be attached
         train(cfg, _ensure_cache(cfg, "train", build=not ON_KAGGLE), _ensure_cache(cfg, "val", build=not ON_KAGGLE))
 
-    elif cmd in ("evaluate", "export-forecast"):
+    elif cmd in ("evaluate", "export-forecast", "bench"):
         import torch
         from wfsea.data.memmap import open_cache
         from wfsea.data.stats import load_stats
@@ -308,7 +309,12 @@ def main(argv=None):
         bmask = boundary_mask(cache.lats, cache.lons, bw)
         sw = max(bw, float(cfg["eval"].get("score_interior_deg", 0) or 0))
         score_mask = boundary_mask(cache.lats, cache.lons, sw) if sw > bw else None
-        if cmd == "evaluate":
+        if cmd == "bench":
+            from wfsea.evaluation.bench import bench
+            bench(model, cache, spec, args.ckpt, out / (mcfg.get("run_name") or cfg["run_name"]), device,
+                  n_steps=cfg["eval"]["n_steps"], n_runs=args.n_runs, tb_policy=cfg["eval"]["tb_policy"],
+                  bmask=bmask, n_params=ck.get("n_params"))
+        elif cmd == "evaluate":
             from wfsea.evaluation.baselines import compute_climatology, load_climatology, save_climatology
             cp = out / "climatology_train.npz"
             if not cp.exists():

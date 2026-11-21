@@ -168,3 +168,19 @@ def test_score_interior_only_without_forcing(cfg):
     assert full["boundary_forcing"] == intr["boundary_forcing"] == "none"
     f = pd.read_csv(run / "eval_persist" / "summary_rmse.csv"); i = pd.read_csv(run / "eval_persist_int1" / "summary_rmse.csv")
     assert not np.allclose(f.select_dtypes("number").values, i.select_dtypes("number").values)
+
+
+def test_bench_and_efficiency_table(cfg):
+    """`wfsea bench` times a 72 h rollout, reads history.json, and the script tabulates it."""
+    import subprocess, sys
+    a = _args(cfg) + ["run_name=bench_test", "train.epochs=1"]
+    main(["train", "--config", "smoke.yaml", *a])
+    run = Path(cfg["paths"]["out"]) / "bench_test"
+    main(["bench", "--config", "smoke.yaml", "--ckpt", str(run / "best.pt"), "--n-runs", "2", *a])
+    b = json.loads((run / "bench.json").read_text())
+    assert b["infer_sec_per_forecast"] > 0 and b["n_params"] > 0 and b["train_epochs"] == 1
+    root = Path(__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, str(root / "scripts" / "efficiency_table.py"), str(run.parent),
+                        "--runs", "bench_test"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "bench_test" in r.stdout
