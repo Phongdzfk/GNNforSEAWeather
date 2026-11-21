@@ -124,3 +124,25 @@ def test_sat_dropout_hides_only_satellite(cfg):
     half = WeatherDataset(c, spec, sat_dropout=0.5)
     hidden = [bool((half[i][2][..., :4] == 0).all()) for i in range(40)]
     assert 8 < sum(hidden) < 32
+
+
+def test_degenerate_static_borrowed_from_sibling_cache(tmp_path):
+    """A cache whose statics came out constant (NaN source read) borrows them from a cache on the same grid."""
+    import json as _json
+    import numpy as _np
+    from wfsea.data.memmap import SplitCache, static_is_degenerate
+    G = 12
+    meta = {"T": 1, "G": G, "C": 1, "lats": [0.0, 1.0, 2.0], "lons": [0.0, 1.0, 2.0, 3.0],
+            "channels": [["t2m", None]], "static_vars": ["lsm", "geopotential_surf"]}
+    good = _np.random.default_rng(0).normal(size=(G, 2)).astype("float32")
+    for name, st in [("val_2025", good), ("test_2026", _np.zeros((G, 2), "float32"))]:
+        d = tmp_path / name; d.mkdir()
+        (d / "meta.json").write_text(_json.dumps(meta)); _np.save(d / "static.npy", st)
+        _np.save(d / "time.npy", _np.array(["2026-01-01T00"], "datetime64[ns]"))
+    assert static_is_degenerate(_np.zeros((G, 2))) and not static_is_degenerate(good)
+    c = SplitCache(tmp_path / "test_2026")
+    assert _np.allclose(c.static, good)
+    _np.save(tmp_path / "val_2025" / "static.npy", _np.zeros((G, 2), "float32"))
+    import pytest as _pt
+    with _pt.raises(ValueError):
+        SplitCache(tmp_path / "test_2026")

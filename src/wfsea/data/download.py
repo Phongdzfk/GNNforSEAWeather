@@ -426,7 +426,16 @@ def gcs_single_download(years, out_dir: str | Path, url: str = GCS_ARCO_URL, var
     lat, lon = ds["latitude"].values[sy], ds["longitude"].values[sx]
     tindex = pd.DatetimeIndex(ds["time"].values)
     names = {v: GCS_SINGLE[v] for v in variables}
-    static = {v: _read2d(ds, n, 0, sy, sx) for v, n in names.items() if v in ("z", "lsm")}
+    # Statics are time-invariant, but the store's early time steps can be NaN → read them at a requested time
+    # (reading time index 0 = 1940 gave an all-NaN lsm/orography for the 2026 test cache).
+    i0 = int(max(0, tindex.searchsorted(pd.Timestamp(f"{min(int(x) for x in years)}-01-01"))))
+    static = {}
+    for v, n in names.items():
+        if v in ("z", "lsm"):
+            a = _read2d(ds, n, min(i0, len(tindex) - 1), sy, sx)
+            if not np.isfinite(a).all():
+                raise ValueError(f"static {v} read from the store is NaN at {tindex[i0]}")
+            static[v] = a
     print(f"[gcs] single levels {list(names)}; data up to {stop}", flush=True)
     pool = ThreadPoolExecutor(workers)
     for y in sorted(int(x) for x in years):

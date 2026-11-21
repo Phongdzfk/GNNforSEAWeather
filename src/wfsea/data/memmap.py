@@ -198,6 +198,9 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     stat_names = [v for v in STATIC_VARS if v in ds0.data_vars]
     static = (np.stack([ds0[v].values.reshape(-1) for v in stat_names], axis=1).astype(np.float32)
               if stat_names else np.zeros((G, 0), np.float32))
+    if static_is_degenerate(np.nan_to_num(static)):
+        print(f"[memmap] WARNING: static fields {stat_names} are constant/NaN in {years[0]} — the cache will "
+              f"borrow them from another cache on the same grid when opened", flush=True)
     np.save(cache_dir / "static.npy", np.nan_to_num(static))
 
     dt = np.diff(times).astype("timedelta64[h]").astype(int)
@@ -221,6 +224,43 @@ def materialize_split(years, cache_dir: str | Path, zarr_root=None, layout: str 
     return cache_dir
 
 
+def static_is_degenerate(static: np.ndarray) -> bool:
+    """True if a static field is constant over the grid (e.g. NaN in the source → nan_to_num → 0).
+    lsm and orography always vary over the SEA domain, so a constant column means a broken read."""
+    return static.size > 0 and bool((np.nanstd(static, axis=0) < 1e-6).any())
+
+
+def _replacement_static(cache: "SplitCache") -> np.ndarray:
+    """Statics are time-invariant → borrow them from another cache on the same grid (e.g. the 2026 test
+    cache, whose GCS-read lsm/orography came out NaN, takes them from the 2025 val or the train cache)."""
+    import glob
+    names = cache.meta.get("static_vars")
+    roots = [cache.dir.parent, cache.dir.parent.parent, Path("/kaggle/input"), Path("/kaggle/working")]
+    seen = {cache.dir.resolve()}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for depth in range(1, 6):
+            for f in sorted(glob.glob(str(root / ("*/" * depth) / "static.npy").replace("//", "/"))):
+                d = Path(f).parent
+                if d.resolve() in seen or not (d / "meta.json").exists():
+                    continue
+                seen.add(d.resolve())
+                try:
+                    m = json.loads((d / "meta.json").read_text())
+                    st = np.load(f)
+                except Exception:
+                    continue
+                if (m.get("G") == cache.G and m.get("static_vars") == names and st.shape == cache.static.shape
+                        and np.allclose(m.get("lats"), cache.lats) and np.allclose(m.get("lons"), cache.lons)
+                        and not static_is_degenerate(st)):
+                    print(f"[cache] WARNING {cache.dir.name}: static fields {names} are constant (broken read); "
+                          f"using the time-invariant statics of {d}", flush=True)
+                    return st
+    raise ValueError(f"{cache.dir}: static fields {names} are constant over the grid (broken source read) and no "
+                     f"other cache on the same grid was found to take them from — attach the val or train cache.")
+
+
 class SplitCache:
     """Read-only view of a materialised split. Opens memmaps lazily (fork-safe)."""
 
@@ -233,6 +273,8 @@ class SplitCache:
         self.static = np.load(self.dir / "static.npy")
         self.channels = [(v, l) for v, l in self.meta["channels"]]
         self._mm = None
+        if static_is_degenerate(self.static):
+            self.static = _replacement_static(self)
 
     @property
     def mm(self) -> dict:
